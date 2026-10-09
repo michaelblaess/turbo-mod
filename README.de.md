@@ -22,41 +22,11 @@ und zeigt, wonach Du sonst immer wieder fragst:
 Dazu kommen 41 Retro-Farbschemata, Englisch und Deutsch als Sprache und ein Titel, der einen
 kleinen Texteffekt abspielt.
 
-```
-♞ Turbo-MOD v0.13.0 · (c) 2026 Michael Blaess · Open Source @ 16 MHz
-Theme ◂ lenseflare ▸ · [DE] · GitHub
+<p align="center">
+  <img src="docs/screenshots/pane-bebox-de.png" width="520" alt="Das Pane von Turbo-MOD mit Beispieldaten, Farbschema bebox">
+</p>
 
-▾ Dateien 2 Dateien · 14,3 KB
-  2 + notizen.md
-      ~/projekte/shop/docs
-      2,1 KB · 08.10. 15:02:11
-      [nvim] [öffnen] [Pfad] [Inhalt]
-  1 ~ cart.ts
-      ...
-  [Liste leeren]
-
-▾ Terminal Windows Terminal · Spickzettel
-  Split [←] [→] [↓]
-  [Neuer Tab]  [Letztes Pane schließen]
-
-▾ Repos 2 von 9 mit Änderungen
-  ● shop ~3 ?1 ↑1 [pull] [>_] feature/ABC-123-fix
-  ● website ↓2 [pull] [>_] main
-  × ~/projekte
-  [neu lesen]  [alle fetchen]  [Ordner hinzufügen]  15:02
-
-▾ Claude · Spickzettel
-  Aktuelle Sitzung
-  ██████████░░░░░░░░░░░░   48 %
-  Reset 17:20
-  Aktuelle Woche
-  ██░░░░░░░░░░░░░░░░░░░░   10 %
-  Reset 15.10. 09:00
-  Kontext
-  ████░░░░░░░░░░░░░░░░░░   21 %
-  42k von 200k · Kosten 1,37 $
-  [neu lesen]  15:02  [/compact]  [/clear]
-```
+Die Bilder zeigen erfundene Beispieldaten, eingeschaltet mit `/turbo demo`.
 
 Alles in eckigen Klammern ist ein Knopf, ebenso die einzelnen Pfeile und das Kreuz.
 
@@ -249,6 +219,18 @@ Das Schließen-Zeichen des Panes oder `ctrl+x x` blendet es ebenfalls aus.
 41 Retro-Schemata aus [textual-themes](https://github.com/michaelblaess/textual-themes),
 zum Beispiel `brotkasten`, `boing`, `synthwave`, `lenseflare` und `christophorus`. `standard`
 folgt dem Theme, das in Claude Code eingestellt ist.
+
+Sieben davon:
+
+<p align="center">
+  <img src="docs/screenshots/pane-miami-de.png" width="24%" alt="Das Pane im Farbschema miami">
+  <img src="docs/screenshots/pane-classic-navy-de.png" width="24%" alt="Das Pane im Farbschema classic-navy">
+  <img src="docs/screenshots/pane-hercules-de.png" width="24%" alt="Das Pane im Farbschema hercules">
+  <img src="docs/screenshots/pane-classic-terminal-de.png" width="24%" alt="Das Pane im Farbschema classic-terminal">
+  <img src="docs/screenshots/pane-ascot-de.png" width="24%" alt="Das Pane im Farbschema ascot">
+  <img src="docs/screenshots/pane-marley-de.png" width="24%" alt="Das Pane im Farbschema marley">
+  <img src="docs/screenshots/pane-bunty-de.png" width="24%" alt="Das Pane im Farbschema bunty">
+</p>
 
 ## Einstellungen
 

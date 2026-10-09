@@ -20,41 +20,11 @@ conversation and shows what you otherwise keep asking for:
 It comes with 41 retro color schemes, speaks English and German, and plays a small text effect
 in its title.
 
-```
-♞ Turbo-MOD v0.13.0 · (c) 2026 Michael Blaess · Open Source @ 16 MHz
-Theme ◂ lenseflare ▸ · [EN] · GitHub
+<p align="center">
+  <img src="docs/screenshots/pane-lenseflare-en.png" width="520" alt="The Turbo-MOD pane with sample data, color scheme lenseflare">
+</p>
 
-▾ Files 2 files · 14.3 KB
-  2 + notes.md
-      ~/projects/shop/docs
-      2.1 KB · 10-08 15:02:11
-      [nvim] [open] [path] [content]
-  1 ~ cart.ts
-      ...
-  [clear list]
-
-▾ Terminal Windows Terminal · cheat sheet
-  Split [←] [→] [↓]
-  [New tab]  [Close last pane]
-
-▾ Repos 2 of 9 with changes
-  ● shop ~3 ?1 ↑1 [pull] [>_] feature/ABC-123-fix
-  ● website ↓2 [pull] [>_] main
-  × ~/projects
-  [refresh]  [fetch all]  [add folder]  15:02
-
-▾ Claude · cheat sheet
-  Current session
-  ██████████░░░░░░░░░░░░   48 %
-  Resets 17:20
-  Current week
-  ██░░░░░░░░░░░░░░░░░░░░   10 %
-  Resets 10-15 09:00
-  Context
-  ████░░░░░░░░░░░░░░░░░░   21 %
-  42k of 200k · Cost $1.37
-  [refresh]  15:02  [/compact]  [/clear]
-```
+The pictures show made-up sample data, switched on with `/turbo demo`.
 
 Everything in square brackets is a button, and so are the single arrows and the cross.
 
@@ -240,6 +210,14 @@ The close mark of the pane or `ctrl+x x` hides it as well.
 41 retro schemes, taken from [textual-themes](https://github.com/michaelblaess/textual-themes),
 for example `brotkasten`, `boing`, `synthwave`, `lenseflare` and `christophorus`. `standard`
 follows the theme you set in Claude Code.
+
+Three of them:
+
+<p align="center">
+  <img src="docs/screenshots/pane-goldrunner-en.png" width="24%" alt="The pane in the color scheme goldrunner">
+  <img src="docs/screenshots/pane-flughund-en.png" width="24%" alt="The pane in the color scheme flughund">
+  <img src="docs/screenshots/pane-corleone-en.png" width="24%" alt="The pane in the color scheme corleone">
+</p>
 
 ## Settings
 
