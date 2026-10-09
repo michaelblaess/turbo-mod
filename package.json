@@ -1,0 +1,15 @@
+{
+  "name": "turbo-mod",
+  "private": true,
+  "description": "Development tools for the mod. Claude Code itself needs none of this to load it.",
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "tsc -p . --noEmit",
+    "check": "biome check . && tsc -p . --noEmit && claude plugin validate . && claude plugin test ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "typescript": "7.0.2"
+  }
+}

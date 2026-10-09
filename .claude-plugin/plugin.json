@@ -1,0 +1,55 @@
+{
+  "name": "turbo-mod",
+  "version": "0.13.0",
+  "description": "A side pane for Claude Code with collapsible widgets: files Claude wrote, terminal splits and the state of your git repos, in retro colors.",
+  "author": {
+    "name": "Michael Blaess"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "theme": {
+      "type": "string",
+      "title": "Theme",
+      "description": "Retro color scheme of the pane. \"standard\" follows the theme of Claude Code. The arrows in the pane or /turbo theme <name> switch it for this machine.",
+      "default": "standard",
+      "options": ["standard", "brotkasten", "boing", "gemstone", "classic-terminal", "next", "bebox", "bunty", "cupertino", "luna", "commandr", "plan9", "motif", "warp", "geeko", "minty", "crimson", "razzy", "beastie", "fifty-eight", "bluesy", "goldfinder", "goldrunner", "hercules", "hulkula", "flughund", "classic-navy", "brick", "clipper", "synthwave", "miami", "racing", "metropolis", "spiderized", "ascot", "joker", "marley", "lenseflare", "platoon", "corleone", "golden-brown", "christophorus"]
+    },
+    "reposRoot": {
+      "type": "string",
+      "title": "Repo folder",
+      "description": "Folder that holds your git repos, several separated by a semicolon. Empty means: pick it in the pane, use /turbo repos <path> or the environment variable TURBO_MOD_REPOS.",
+      "default": ""
+    },
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Language of the pane. The button in the pane or /turbo lang <de|en> switches it for this machine.",
+      "default": "en",
+      "options": [
+        "de",
+        "en"
+      ]
+    },
+    "ticketUrl": {
+      "type": "string",
+      "title": "Ticket address",
+      "description": "Address of a ticket with the placeholder {id}, for example https://jira.example.com/browse/{id}. A ticket key in a branch name then becomes a link.",
+      "default": ""
+    },
+    "ticketFeed": {
+      "type": "string",
+      "title": "Ticket feed",
+      "description": "Command that prints new tickets as JSON. Setting it switches on the widget New tickets, empty leaves it off. See the README for the format.",
+      "default": ""
+    },
+    "editor": {
+      "type": "string",
+      "title": "Editor",
+      "description": "Program the button next to a file starts in a new split.",
+      "default": "nvim"
+    }
+  },
+  "homepage": "https://github.com/michaelblaess/turbo-mod",
+  "repository": "https://github.com/michaelblaess/turbo-mod",
+  "license": "Apache-2.0"
+}

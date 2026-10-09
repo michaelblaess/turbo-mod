@@ -1,0 +1,6 @@
+# Claude Code puts this next to the mod on every load: the interface types for exactly this build
+.claude-plugin/types/
+
+# Development tools, see package.json. The lockfile depends on the registry of the machine.
+node_modules/
+package-lock.json

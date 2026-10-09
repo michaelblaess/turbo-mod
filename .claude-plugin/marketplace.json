@@ -1,0 +1,5 @@
+{
+  "name": "turbo-mod",
+  "owner": { "name": "Michael Blaess" },
+  "plugins": [{ "name": "turbo-mod", "source": "./" }]
+}
