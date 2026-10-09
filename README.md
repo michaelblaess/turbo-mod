@@ -212,6 +212,14 @@ The close mark of the pane or `ctrl+x x` hides it as well.
 for example `brotkasten`, `boing`, `synthwave`, `lenseflare` and `christophorus`. `standard`
 follows the theme you set in Claude Code.
 
+Three of them:
+
+<p align="center">
+  <img src="docs/screenshots/pane-christophorus-en.png" width="24%" alt="The pane in the color scheme christophorus">
+  <img src="docs/screenshots/pane-brotkasten-en.png" width="24%" alt="The pane in the color scheme brotkasten">
+  <img src="docs/screenshots/pane-cupertino-en.png" width="24%" alt="The pane in the color scheme cupertino">
+</p>
+
 ## Settings
 
 Under `/config`, or in `~/.claude/settings.json` under `pluginConfigs["turbo-mod"].options`.
