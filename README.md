@@ -15,7 +15,8 @@ conversation and shows what you otherwise keep asking for:
 - **Repos** - which of your git repos have uncommitted changes or unpushed commits, with a
   pull button next to each
 - **Claude** - how much of your limits is used, when they reset and how full the context is
-- **New tickets** - optional, off by default: new tickets from your ticket system
+- **New tickets** - optional, off by default: new tickets from your ticket system. Needs a second
+  program on your machine, for Jira that is [jira-timesheet](https://github.com/michaelblaess/jira-timesheet)
 
 It comes with 41 retro color schemes, speaks English and German, and plays a small text effect
 in its title.
@@ -156,18 +157,26 @@ within five seconds.
 
 ### New tickets (optional)
 
-Off by default. The widget appears once you name a command that prints tickets as JSON:
+**Needs a second program that is installed on your machine.** The mod never talks to a ticket
+system itself and knows no credentials. For Jira that program is [jira-timesheet](https://github.com/michaelblaess/jira-timesheet),
+version 1.25.0 or newer. Without it, or a command of your own that does the same, the widget
+stays off.
+
+With jira-timesheet installed and set up, switch the widget on:
 
 ```
-/turbo feed <command>
+/turbo feed jira-timesheet --new-tickets-json
 ```
 
-The mod runs that command when you open the widget, on `[refresh]` and every ten minutes while
+If `jira-timesheet` is not on the PATH, give the full path. A path with blanks goes in double
+quotes. `/turbo feed off` switches the widget off again.
+
+The mod runs the command when you open the widget, on `[refresh]` and every ten minutes while
 it is open, and lists what comes back: the ticket key as a link, the title behind it, eight
-tickets at most. The mod never talks to a ticket system itself and knows no credentials, the
-command does that. `/turbo feed off` switches the widget off again.
+tickets at most.
 
-The command prints one JSON object. Only `key` is required per ticket, other fields are ignored:
+**Another ticket system:** any command works that prints one JSON object in this form. Name it
+with `/turbo feed <command>`. Only `key` is required per ticket, other fields are ignored:
 
 ```json
 {
@@ -177,15 +186,7 @@ The command prints one JSON object. Only `key` is required per ticket, other fie
 ```
 
 A `message` in that object is shown instead of the list, for example when the command could
-not reach the server. [jira-timesheet](https://github.com/michaelblaess/jira-timesheet) prints
-exactly this format for Jira, from version 1.25.0 on:
-
-```
-/turbo feed jira-timesheet --new-tickets-json
-```
-
-If `jira-timesheet` is not on the PATH, give the full path. A path with blanks goes in double
-quotes.
+not reach the server.
 
 ## Commands
 
@@ -210,14 +211,6 @@ The close mark of the pane or `ctrl+x x` hides it as well.
 41 retro schemes, taken from [textual-themes](https://github.com/michaelblaess/textual-themes),
 for example `brotkasten`, `boing`, `synthwave`, `lenseflare` and `christophorus`. `standard`
 follows the theme you set in Claude Code.
-
-Three of them:
-
-<p align="center">
-  <img src="docs/screenshots/pane-goldrunner-en.png" width="24%" alt="The pane in the color scheme goldrunner">
-  <img src="docs/screenshots/pane-flughund-en.png" width="24%" alt="The pane in the color scheme flughund">
-  <img src="docs/screenshots/pane-corleone-en.png" width="24%" alt="The pane in the color scheme corleone">
-</p>
 
 ## Settings
 

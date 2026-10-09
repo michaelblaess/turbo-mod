@@ -17,7 +17,8 @@ und zeigt, wonach Du sonst immer wieder fragst:
   einem Pull-Knopf an jedem
 - **Claude** - wie viel von Deinen Limits verbraucht ist, wann sie zurückgesetzt werden und wie
   voll der Kontext ist
-- **Neue Tickets** - optional, in der Vorgabe aus: neue Tickets aus Deinem Ticketsystem
+- **Neue Tickets** - optional, in der Vorgabe aus: neue Tickets aus Deinem Ticketsystem. Braucht
+  ein zweites Programm auf Deinem Rechner, für Jira ist das [jira-timesheet](https://github.com/michaelblaess/jira-timesheet)
 
 Dazu kommen 41 Retro-Farbschemata, Englisch und Deutsch als Sprache und ein Titel, der einen
 kleinen Texteffekt abspielt.
@@ -162,19 +163,26 @@ Klick innerhalb von fünf Sekunden.
 
 ### Neue Tickets (optional)
 
-In der Vorgabe aus. Das Widget erscheint, sobald Du einen Befehl nennst, der Tickets als JSON
-ausgibt:
+**Braucht ein zweites Programm, das auf Deinem Rechner installiert ist.** Der Mod spricht nie
+selbst mit einem Ticketsystem und kennt keine Zugangsdaten. Für Jira ist dieses Programm
+[jira-timesheet](https://github.com/michaelblaess/jira-timesheet), ab Version 1.25.0. Ohne
+jira-timesheet oder einen eigenen Befehl, der dasselbe leistet, bleibt das Widget aus.
+
+Ist jira-timesheet installiert und eingerichtet, schaltest Du das Widget so ein:
 
 ```
-/turbo feed <befehl>
+/turbo feed jira-timesheet --new-tickets-json
 ```
 
-Der Mod startet diesen Befehl beim Aufklappen des Widgets, bei `[neu lesen]` und alle zehn
-Minuten, solange es offen ist, und listet, was zurückkommt: die Ticketnummer als Link, dahinter
-der Titel, höchstens acht Tickets. Der Mod spricht nie selbst mit einem Ticketsystem und kennt
-keine Zugangsdaten, das macht der Befehl. `/turbo feed aus` schaltet das Widget wieder ab.
+Liegt `jira-timesheet` nicht im PATH, gib den vollen Pfad an. Ein Pfad mit Leerzeichen steht in
+doppelten Anführungszeichen. `/turbo feed aus` schaltet das Widget wieder ab.
 
-Der Befehl gibt ein JSON-Objekt aus. Je Ticket ist nur `key` Pflicht, weitere Felder werden
+Der Mod startet den Befehl beim Aufklappen des Widgets, bei `[neu lesen]` und alle zehn Minuten,
+solange es offen ist, und listet, was zurückkommt: die Ticketnummer als Link, dahinter der
+Titel, höchstens acht Tickets.
+
+**Ein anderes Ticketsystem:** Es geht jeder Befehl, der ein JSON-Objekt in dieser Form ausgibt.
+Du nennst ihn mit `/turbo feed <befehl>`. Je Ticket ist nur `key` Pflicht, weitere Felder werden
 übergangen:
 
 ```json
@@ -185,15 +193,7 @@ Der Befehl gibt ein JSON-Objekt aus. Je Ticket ist nur `key` Pflicht, weitere Fe
 ```
 
 Eine `message` in diesem Objekt erscheint statt der Liste, etwa wenn der Befehl den Server nicht
-erreicht hat. [jira-timesheet](https://github.com/michaelblaess/jira-timesheet) gibt genau dieses
-Format für Jira aus, ab Version 1.25.0:
-
-```
-/turbo feed jira-timesheet --new-tickets-json
-```
-
-Liegt `jira-timesheet` nicht im PATH, gib den vollen Pfad an. Ein Pfad mit Leerzeichen steht in
-doppelten Anführungszeichen.
+erreicht hat.
 
 ## Befehle
 
@@ -220,15 +220,12 @@ Das Schließen-Zeichen des Panes oder `ctrl+x x` blendet es ebenfalls aus.
 zum Beispiel `brotkasten`, `boing`, `synthwave`, `lenseflare` und `christophorus`. `standard`
 folgt dem Theme, das in Claude Code eingestellt ist.
 
-Sieben davon:
+Vier davon:
 
 <p align="center">
   <img src="docs/screenshots/pane-miami-de.png" width="24%" alt="Das Pane im Farbschema miami">
   <img src="docs/screenshots/pane-classic-navy-de.png" width="24%" alt="Das Pane im Farbschema classic-navy">
-  <img src="docs/screenshots/pane-hercules-de.png" width="24%" alt="Das Pane im Farbschema hercules">
-  <img src="docs/screenshots/pane-classic-terminal-de.png" width="24%" alt="Das Pane im Farbschema classic-terminal">
   <img src="docs/screenshots/pane-ascot-de.png" width="24%" alt="Das Pane im Farbschema ascot">
-  <img src="docs/screenshots/pane-marley-de.png" width="24%" alt="Das Pane im Farbschema marley">
   <img src="docs/screenshots/pane-bunty-de.png" width="24%" alt="Das Pane im Farbschema bunty">
 </p>
 
