@@ -63,6 +63,24 @@ Code, sie ist "early access" und ändert sich zwischen Versionen.
 - **retro-text-effects.js läuft nicht als Bibliothek**, weil es das DOM und
   `requestAnimationFrame` braucht. Drei Effekte sind als kleine eigene Funktionen nachgebaut,
   getaktet über den Taktgeber des Hosts.
+- **Die TODO-Liste ist eine Markdown-Datei außerhalb jedes Repos.** Vorgabe ist
+  `~/.claude/turbo-mod-todo.md`, je Rechner eine eigene. Die Aufgaben dürfen in keiner
+  Git-Historie landen: Ein Pfad in einem Repo wird abgelehnt, geprüft mit
+  `git rev-parse --is-inside-work-tree`. Die Datei wird vor jeder Änderung neu gelesen, weil sie
+  jemand von Hand bearbeitet haben kann, und eine Aufgabe wird über Zeile und Text gefunden.
+  Zeilen, die keine Aufgabe sind, bleiben stehen. Im Demo-Modus wird nicht gelesen und nicht
+  geschrieben.
+- **Bearbeiten per Doppelklick auf den Text.** Die Schnittstelle kennt keinen Doppelklick und
+  keinen anklickbaren Text. Der Text einer offenen Aufgabe ist deshalb ein `Button`, und zwei
+  Klicks innerhalb von 600 Millisekunden öffnen das Textfeld. Ein Knopf kürzt seine Beschriftung
+  nicht selbst, der Mod schneidet sie auf die Breite des Panes zu. Eine erledigte Aufgabe bleibt
+  `Text`, weil ein Knopf nicht durchstreichen kann.
+- **Das Pane bittet beim Plus um die Tastatur.** Ein Klick auf einen Knopf gibt sie ihm nicht.
+  `$.ui.open` mit `focus` fragt danach, der Host gewährt sie nur bei leerer Eingabezeile.
+- **Text kommt über `Input`, auf dem Handy über den Befehl.** Die Tabelle der Elemente kennt
+  `Input` auf jeder Fläche außer der mobilen. Dort fehlt das Plus, `/turbo todo <text>` legt
+  die Aufgabe an. Solange die Liste leer ist, bleibt der Abschnitt eingeklappt, damit die
+  Dateiliste ihren Platz behält.
 
 ## Offen
 

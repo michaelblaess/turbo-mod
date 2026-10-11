@@ -35,6 +35,7 @@ import {
 } from './platform'
 import { findLanguage, textsFor } from './texts'
 import { findTheme, lookFor, themeNames } from './theme'
+import { addTodo, changeTodo, clearDoneTodos, fitTodoText, formatTodo, parseTodos, sortTodos, todoPathIn } from './todo'
 
 test('formatSize writes German with a comma', () => {
   expect(formatSize(512)).toEqual('512 B')
@@ -1001,4 +1002,218 @@ test('a shell call that touches dozens of files is a pull or an install and list
 
   const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
   expect(await ui.find({ text: /Noch nichts geschrieben/ })).toBeDefined()
+})
+
+test('the TODO file is read tolerantly and every foreign line stays as it is', () => {
+  const content = ['# Ideas', '', '- [ ] Write the notes', '* [x] Old one', 'just a remark', '- [ ] Later'].join('\n')
+  expect(parseTodos(content)).toEqual([
+    { line: 2, text: 'Write the notes', isDone: false },
+    { line: 3, text: 'Old one', isDone: true },
+    { line: 5, text: 'Later', isDone: false },
+  ])
+  expect(parseTodos('- [ ]   \n- no box\n')).toEqual([])
+
+  const added = addTodo(content, '  Buy\nmilk  ')
+  expect(added.endsWith('- [ ] Later\n- [ ] Buy milk\n')).toEqual(true)
+  expect(added.startsWith('# Ideas\n\n- [ ] Write the notes\n* [x] Old one\njust a remark\n')).toEqual(true)
+  expect(addTodo(content, '   ')).toEqual(content)
+  expect(addTodo('', 'First')).toEqual('- [ ] First\n')
+})
+
+test('a task is ticked, renamed and removed by its line', () => {
+  const content = '# Ideas\n- [ ] One\n- [ ] Two\n'
+  const [one, two] = parseTodos(content)
+  if (one === undefined || two === undefined) throw new Error('two tasks expected')
+
+  expect(changeTodo(content, one, now => ({ ...now, isDone: true }))).toEqual('# Ideas\n- [x] One\n- [ ] Two\n')
+  expect(changeTodo(content, two, now => ({ ...now, text: 'Two again' }))).toEqual(
+    '# Ideas\n- [ ] One\n- [ ] Two again\n',
+  )
+  expect(changeTodo(content, one, () => undefined)).toEqual('# Ideas\n- [ ] Two\n')
+  // An empty new text keeps the old one
+  expect(changeTodo(content, one, now => ({ ...now, text: '  ' }))).toEqual(content)
+})
+
+test('a task that moved in the file is found by its text, one that is gone changes nothing', () => {
+  const drawn = parseTodos('- [ ] One\n- [ ] Two\n')[1]
+  if (drawn === undefined) throw new Error('a task expected')
+
+  // Somebody added a line on top by hand since the pane drew the list
+  const edited = '- [ ] New on top\n- [ ] One\n- [ ] Two\n'
+  expect(changeTodo(edited, drawn, now => ({ ...now, isDone: true }))).toEqual(
+    '- [ ] New on top\n- [ ] One\n- [x] Two\n',
+  )
+  expect(changeTodo('- [ ] One\n', drawn, now => ({ ...now, isDone: true }))).toEqual('- [ ] One\n')
+})
+
+test('open tasks come first in the order of the file, done ones below, and tidying removes only the done', () => {
+  const items = parseTodos('- [x] Done\n- [ ] Low\n- [ ] Normal\n- [ ] High\n- [ ] Normal two\n')
+  expect(sortTodos(items).map(one => one.text)).toEqual(['Low', 'Normal', 'High', 'Normal two', 'Done'])
+  expect(clearDoneTodos('# Ideas\n- [x] Done\nremark\n- [ ] Low\n')).toEqual('# Ideas\nremark\n- [ ] Low\n')
+  expect(formatTodo({ text: ' a  b ', isDone: true })).toEqual('- [x] a b')
+})
+
+test('a long task is cut to its room, a button does not shorten its label itself', () => {
+  expect(fitTodoText('Short', 20)).toEqual('Short')
+  expect(fitTodoText('Call the vet on Monday', 12)).toEqual('Call the...')
+  expect(fitTodoText('Call the vet on Monday', 1)).toEqual('C...')
+})
+
+test('the TODO list lies below the home folder, with the slashes of that folder', () => {
+  expect(todoPathIn('/home/sam')).toEqual('/home/sam/.claude/turbo-mod-todo.md')
+  expect(todoPathIn('/home/sam/')).toEqual('/home/sam/.claude/turbo-mod-todo.md')
+  expect(todoPathIn('C:\\Users\\Sam')).toEqual('C:\\Users\\Sam\\.claude\\turbo-mod-todo.md')
+})
+
+type TestOn = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[1]
+
+/** Answers the file, the environment and git from memory. `tracked` names folders that count as a git repo. */
+const todoHost = (on: TestOn, tracked: string[] = []) => {
+  const disk: { content: string | undefined; path: string; gitDirs: string[]; now: number } = {
+    content: undefined,
+    path: '',
+    gitDirs: [],
+    now: new Date(2026, 9, 12, 9, 0, 0).getTime(),
+  }
+  on('store.set', () => ({ value: undefined }))
+  on('clock.now', () => ({ value: disk.now }))
+  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
+  on('fs.exists', () => ({ value: disk.content !== undefined }))
+  on('fs.read', () => ({ value: disk.content ?? '' }))
+  on('fs.write', (_$, e) => {
+    disk.content = e.text
+    // The test host turns the path into one of its own system
+    disk.path = e.path
+      .split('\\')
+      .join('/')
+      .replace(/^[A-Za-z]:/, '')
+
+    return { value: undefined }
+  })
+  on('process.run', (_$, e) => {
+    const isGit = e.argv[0] === 'git' && e.argv[3] === 'rev-parse'
+    if (isGit) disk.gitDirs.push(String(e.argv[2]))
+
+    return {
+      value: {
+        exitCode: 0,
+        stdout: isGit && tracked.includes(String(e.argv[2])) ? 'true\n' : '',
+        stderr: '',
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+      },
+    }
+  })
+
+  return disk
+}
+
+test('the widget TODO adds a task from the field and from /turbo todo, ticks it and tidies up', async ($, on) => {
+  const disk = todoHost(on)
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await ui.press({ key: 'notice:accept' })
+  // In a test the start runs with the first command
+  expect((await $.command.run({ command: 'turbo', args: 'todo' } as never)).text).toEqual('0 tasks open.')
+  expect(await ui.find({ text: /^TODO$/ })).toBeDefined()
+  expect(await ui.find({ text: /^No tasks yet/ })).toBeDefined()
+
+  // The field appears with the plus and takes the task on Enter
+  expect((await ui.findAll({ type: 'Input' })).length).toEqual(0)
+  await ui.press({ key: 'todo:add' })
+  expect((await ui.findAll({ type: 'Input' })).length).toEqual(1)
+  await ui.input({ key: 'todo:input', text: 'Call the vet' })
+  expect(disk.content).toEqual('- [ ] Call the vet\n')
+  expect(disk.path).toEqual('/home/sam/.claude/turbo-mod-todo.md')
+  expect((await ui.findAll({ type: 'Input' })).length).toEqual(0)
+  expect(await ui.find({ text: /^1 open$/ })).toBeDefined()
+
+  const answer = await $.command.run({ command: 'turbo', args: 'todo Idea: a dark logo' } as never)
+  expect(answer.text).toEqual('Task added: Idea: a dark logo')
+  expect(disk.content).toEqual('- [ ] Call the vet\n- [ ] Idea: a dark logo\n')
+  expect((await $.command.run({ command: 'turbo', args: 'todo' } as never)).text).toEqual('2 tasks open.')
+
+  // One press on the text does nothing, a late second one neither
+  await ui.press({ key: 'todo:text:0' })
+  expect((await ui.findAll({ type: 'Input' })).length).toEqual(0)
+  disk.now += 5000
+  await ui.press({ key: 'todo:text:0' })
+  expect((await ui.findAll({ type: 'Input' })).length).toEqual(0)
+  // The second press right after it is the double click: the old text is in the field
+  disk.now += 200
+  await ui.press({ key: 'todo:text:0' })
+  expect((await ui.findAll({ type: 'Input' })).length).toEqual(1)
+  await ui.input({ key: 'todo:input', text: 'Call the vet on Monday' })
+  expect(disk.content).toEqual('- [ ] Call the vet on Monday\n- [ ] Idea: a dark logo\n')
+
+  await ui.press({ key: 'todo:done:0' })
+  expect(disk.content).toEqual('- [x] Call the vet on Monday\n- [ ] Idea: a dark logo\n')
+  expect(await ui.find({ text: /^1 open$/ })).toBeDefined()
+
+  // Tidying asks a second time
+  await ui.press({ key: 'todo:tidy' })
+  expect(disk.content).toEqual('- [x] Call the vet on Monday\n- [ ] Idea: a dark logo\n')
+  await ui.press({ key: 'todo:tidy' })
+  expect(disk.content).toEqual('- [ ] Idea: a dark logo\n')
+
+  // Removing asks a second time as well
+  await ui.press({ key: 'todo:remove:0' })
+  expect(disk.content).toEqual('- [ ] Idea: a dark logo\n')
+  await ui.press({ key: 'todo:remove:0' })
+  expect(disk.content).toEqual('')
+})
+
+test('cancel closes the field without writing, and an empty Enter adds nothing', async ($, on) => {
+  const disk = todoHost(on)
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await ui.press({ key: 'notice:accept' })
+  await $.command.run({ command: 'turbo', args: 'todo' } as never)
+
+  await ui.press({ key: 'todo:add' })
+  await ui.press({ key: 'todo:cancel' })
+  expect((await ui.findAll({ type: 'Input' })).length).toEqual(0)
+  expect(disk.content).toEqual(undefined)
+
+  await ui.press({ key: 'todo:add' })
+  await ui.input({ key: 'todo:input', text: '   ' })
+  expect(disk.content).toEqual(undefined)
+  expect((await ui.findAll({ type: 'Input' })).length).toEqual(0)
+})
+
+test('a file inside a git repo is refused, so the tasks never reach a history', async ($, on) => {
+  const disk = todoHost(on, ['/work/repo/notes'])
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await ui.press({ key: 'notice:accept' })
+
+  const refused = await $.command.run({ command: 'turbo', args: 'todo file /work/repo/notes/todo.md' } as never)
+  expect(refused.text).toMatch(/lies inside a git repo/)
+  expect((await $.command.run({ command: 'turbo', args: 'todo file' } as never)).text).toEqual(
+    'The TODO list is kept in: /home/sam/.claude/turbo-mod-todo.md',
+  )
+
+  const taken = await $.command.run({ command: 'turbo', args: 'todo file /home/sam/notes/todo.md' } as never)
+  expect(taken.text).toEqual('The TODO list is now kept in: /home/sam/notes/todo.md')
+  await $.command.run({ command: 'turbo', args: 'todo Somewhere else' } as never)
+  expect(disk.path).toEqual('/home/sam/notes/todo.md')
+  expect(disk.gitDirs.includes('/home/sam/notes')).toEqual(true)
+})
+
+test('the sample data brings invented tasks and writes nothing', async ($, on) => {
+  const disk = todoHost(on)
+  // The real list holds a task with the text of an invented one, a click in the sample must not tick it
+  const real = '- [ ] My real task\n- [ ] Write the release notes\n'
+  disk.content = real
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await ui.press({ key: 'notice:accept' })
+  await $.command.run({ command: 'turbo', args: 'todo' } as never)
+  expect((await ui.find({ key: 'todo:text:0' }))?.text).toEqual('My real task')
+
+  await $.command.run({ command: 'turbo', args: 'demo' } as never)
+  expect((await ui.find({ key: 'todo:text:0' }))?.text).toEqual('Write the release notes')
+  // The pane is 40 columns wide here, the long task is cut
+  expect((await ui.find({ key: 'todo:text:1' }))?.text).toEqual('Idea: a dark variant of the...')
+  await ui.press({ key: 'todo:done:0' })
+  expect(disk.content).toEqual(real)
+
+  await $.command.run({ command: 'turbo', args: 'demo' } as never)
+  expect((await ui.find({ key: 'todo:text:0' }))?.text).toEqual('My real task')
 })

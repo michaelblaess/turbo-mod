@@ -1,7 +1,7 @@
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 
-import type { FeedState, FileEntry, HostInfo, RepoEntry, ReposState, UsageState } from '../types'
+import type { FeedState, FileEntry, HostInfo, RepoEntry, ReposState, TodoItem, TodoState, UsageState } from '../types'
 import { demoState } from './demo'
 import type { EffectName } from './effects'
 import { EFFECTS, effectFrame } from './effects'
@@ -59,9 +59,10 @@ import {
 import type { Lang } from './texts'
 import { findLanguage, LANGUAGES, textsFor } from './texts'
 import { findTheme, lookFor, STANDARD, themeNames } from './theme'
+import { addTodo, changeTodo, clearDoneTodos, fitTodoText, parseTodos, sortTodos, todoPathIn } from './todo'
 
 // Must match the version in .claude-plugin/plugin.json
-const VERSION = '0.15.0'
+const VERSION = '0.16.0'
 
 const PANE = 'turbo-mod'
 const PANE_TITLE = 'Turbo-MOD'
@@ -121,6 +122,12 @@ const NO_REPOS: ReposState = {
 const NO_HOST: HostInfo = { os: 'linux', terminal: 'none' }
 const NO_FEED: FeedState = { command: '', list: [], since: '', checkedAt: 0, isBusy: false, note: '' }
 const NO_USAGE: UsageState = { measuredAt: 0, tokens: 0, window: 0, limits: [], usd: -1 }
+const NO_TODO: TodoState = { path: '', list: [], editing: -2, checkedAt: 0, note: '' }
+const MAX_TODO_ROWS = 12
+// Key of the text field of the TODO list, there is never more than one
+const TODO_INPUT = 'todo:input'
+// A second press on the same text within this time counts as a double click
+const DOUBLE_PRESS_MS = 600
 
 const files = atom({ plugin: 'turbo-mod', key: 'files' } as const, [] as FileEntry[])
 // The repo overview starts collapsed so that git does not run unasked
@@ -139,15 +146,25 @@ const editorPath = atom({ plugin: 'turbo-mod', key: 'editorPath' } as const, '')
 const usage = atom({ plugin: 'turbo-mod', key: 'usage' } as const, NO_USAGE)
 const ticketUrl = atom({ plugin: 'turbo-mod', key: 'ticketUrl' } as const, '')
 const feed = atom({ plugin: 'turbo-mod', key: 'feed' } as const, NO_FEED)
+const todo = atom({ plugin: 'turbo-mod', key: 'todo' } as const, NO_TODO)
 
 // Applies per module load: after a reload the timers are gone and the start runs again
 let isStarted = false
 let isRestoring = false
 let isTitleLooping = true
+// The last press on the text of a task, for the double click that opens the field
+let lastTextPress = { key: '', at: 0 }
 // While sample data is shown, nothing real may be read or written into the pane
 let isDemo = false
 let beforeDemo:
-  | { files: FileEntry[]; repos: ReposState; feed: FeedState; usage: UsageState; collapsed: Record<string, boolean> }
+  | {
+      files: FileEntry[]
+      repos: ReposState
+      feed: FeedState
+      usage: UsageState
+      todo: TodoState
+      collapsed: Record<string, boolean>
+    }
   | undefined
 // The language from the options, it applies until the start has read the remembered choice
 let optionLanguage: Lang = 'en'
@@ -244,6 +261,7 @@ const toggleDemo = async ($: EngineInterface): Promise<boolean> => {
       await update($, repos, () => kept.repos)
       await update($, feed, () => kept.feed)
       await update($, usage, () => kept.usage)
+      await update($, todo, () => kept.todo)
       await update($, collapsed, () => kept.collapsed)
     }
     await readUsage($)
@@ -256,6 +274,7 @@ const toggleDemo = async ($: EngineInterface): Promise<boolean> => {
     repos: await read($, repos),
     feed: (await read($, feed)) ?? NO_FEED,
     usage: (await read($, usage)) ?? NO_USAGE,
+    todo: (await read($, todo)) ?? NO_TODO,
     collapsed: await read($, collapsed),
   }
   const sample = demoState(await $.clock.now())
@@ -264,8 +283,16 @@ const toggleDemo = async ($: EngineInterface): Promise<boolean> => {
   await update($, repos, () => sample.repos)
   await update($, feed, () => sample.feed)
   await update($, usage, () => sample.usage)
+  await update($, todo, now => ({ ...NO_TODO, path: now.path, list: sample.todos, checkedAt: sample.usage.measuredAt }))
   // Everything open, so one screenshot shows every widget
-  await update($, collapsed, () => ({ files: false, terminal: false, repos: false, feed: false, session: false }))
+  await update($, collapsed, () => ({
+    files: false,
+    terminal: false,
+    repos: false,
+    feed: false,
+    todo: false,
+    session: false,
+  }))
 
   return true
 }
@@ -293,6 +320,121 @@ const isSecondPress = async ($: EngineInterface, key: string): Promise<boolean> 
   })
 
   return false
+}
+
+/** True if the folder of the file belongs to a git repo. The tasks must never end up in a history. */
+const isInRepo = async ($: EngineInterface, path: string): Promise<boolean> => {
+  const dir = splitPath(path).dir
+  if (dir.length === 0) return false
+
+  const answer = await $.process
+    .run(['git', '-C', dir, 'rev-parse', '--is-inside-work-tree'], { timeoutMs: RUN_TIMEOUT_MS })
+    .then(result => result.stdout)
+    .catch(() => '')
+
+  return answer.trim() === 'true'
+}
+
+/** The content of the list. A missing file is an empty list, `undefined` a file that cannot be read. */
+const loadTodoFile = async ($: EngineInterface, path: string): Promise<string | undefined> => {
+  if (!(await $.fs.exists(path).catch(() => false))) return ''
+
+  return $.fs
+    .read(path)
+    .then(content => (typeof content === 'string' ? content : undefined))
+    .catch(() => undefined)
+}
+
+/** Reads the TODO list from its file. */
+const readTodos = async ($: EngineInterface): Promise<void> => {
+  if (isDemo) return
+
+  const state = (await read($, todo)) ?? NO_TODO
+  if (state.path.length === 0 || state.note === 'in-repo') return
+
+  const content = await loadTodoFile($, state.path)
+  const checkedAt = await $.clock.now()
+  await update($, todo, now => ({
+    ...now,
+    list: content === undefined ? [] : parseTodos(content),
+    note: content === undefined ? 'unreadable' : '',
+    checkedAt,
+  }))
+}
+
+/** Reads the file, applies the change and writes it back. The file is read anew every time. */
+const writeTodos = async ($: EngineInterface, change: (content: string) => string): Promise<boolean> => {
+  if (isDemo) return false
+
+  const state = (await read($, todo)) ?? NO_TODO
+  if (state.path.length === 0 || state.note === 'in-repo') return false
+
+  const content = await loadTodoFile($, state.path)
+  if (content === undefined) {
+    await update($, todo, now => ({ ...now, note: 'unreadable' }))
+
+    return false
+  }
+
+  const next = change(content)
+  const isWritten =
+    next === content ||
+    (await $.fs
+      .write(state.path, next)
+      .then(() => true)
+      .catch(() => false))
+  if (!isWritten) await update($, todo, now => ({ ...now, note: 'unreadable' }))
+  else await readTodos($)
+
+  return isWritten
+}
+
+/** Sets the file of the TODO list for this machine. A folder inside a git repo is refused. */
+const setTodoPath = async ($: EngineInterface, path: string): Promise<boolean> => {
+  if (await isInRepo($, path)) return false
+
+  await $.store.set('todoPath', path)
+  await update($, todo, now => ({ ...now, path, note: '', editing: -2 }))
+  await update($, collapsed, now => ({ ...now, todo: false }))
+  await readTodos($)
+
+  return true
+}
+
+/** True on the second press on the same text in quick succession. The interface has no double click of its own. */
+const isDoublePress = async ($: EngineInterface, key: string): Promise<boolean> => {
+  const at = await $.clock.now()
+  const isDouble = lastTextPress.key === key && at - lastTextPress.at <= DOUBLE_PRESS_MS
+  lastTextPress = isDouble ? { key: '', at: 0 } : { key, at }
+
+  return isDouble
+}
+
+/** Shows the text field for a new task (-1) or for the task of a line, -2 hides it. */
+const editTodo = async ($: EngineInterface, line: number): Promise<void> => {
+  await update($, todo, now => ({ ...now, editing: line }))
+  if (line === -2) return
+
+  // A click on a button does not hand the keyboard to the pane, so the pane asks for it. The
+  // field is drawn with the next rendering, the focus waits for it and tries once more if refused.
+  await $.ui.open({ id: PANE, title: PANE_TITLE, focus: true }).catch(() => undefined)
+  const toField = () => $.ui.focus({ requestId: PANE, key: TODO_INPUT }).catch(() => ({ deny: 'failed' }))
+  const first = await toField()
+  if ('deny' in first) {
+    $.clock.after(60, () => {
+      void toField()
+    })
+  }
+}
+
+/** Enter in the text field: a new task without `item`, otherwise the new text of that task. */
+const saveTodo = async ($: EngineInterface, item: TodoItem | undefined, value: string): Promise<void> => {
+  await update($, todo, now => ({ ...now, editing: -2 }))
+  if (value.trim().length === 0) return
+
+  await writeTodos($, content =>
+    item === undefined ? addTodo(content, value) : changeTodo(content, item, now => ({ ...now, text: value })),
+  )
 }
 
 /** Compacts the conversation as /compact does, then reads the figures again. */
@@ -540,7 +682,7 @@ const restore = async ($: EngineInterface, options: PluginOptions): Promise<void
       name: COMMAND,
       description: textsFor(language).commandDescription,
       argumentHint:
-        '[theme <name> | repos [remove] <path> | ticket <url> | feed <command> | lang <de|en> | clear | effect | demo]',
+        '[todo <text> | theme <name> | repos [remove] <path> | ticket <url> | feed <command> | lang <de|en> | clear | effect | demo]',
     })
     .catch(() => undefined)
 
@@ -580,6 +722,18 @@ const restore = async ($: EngineInterface, options: PluginOptions): Promise<void
   await update($, ticketUrl, () => tickets)
   const feedCommand = (await stored('feedCommand')) || textOf(options.ticketFeed)
   await update($, feed, now => ({ ...NO_FEED, ...now, command: feedCommand, isBusy: false }))
+  const home =
+    textOf(await $.env.get('USERPROFILE').catch(() => undefined)) ||
+    textOf(await $.env.get('HOME').catch(() => undefined))
+  const todoPath = (await stored('todoPath')) || (home.length > 0 ? todoPathIn(home) : '')
+  const isTracked = todoPath.length > 0 && (await isInRepo($, todoPath).catch(() => false))
+  await update($, todo, now => ({
+    ...NO_TODO,
+    list: now.list ?? [],
+    path: todoPath,
+    note: isTracked ? 'in-repo' : '',
+  }))
+  await readTodos($).catch(() => undefined)
   // Only ever switches on: a click that came before the end of the start must not be undone
   if ((await stored('accepted')) === 'yes') await update($, accepted, () => true)
   await readUsage($)
@@ -868,6 +1022,32 @@ export const register: Register = (on, options) => {
       return { text: t.ticketSet(argument) }
     }
 
+    if (verb === 'todo') {
+      const state = (await read($, todo)) ?? NO_TODO
+      const file = /^(datei|file)(?:\s+(.+))?$/i.exec(argument)
+      if (file !== null) {
+        const path = (file[2] ?? '').trim()
+        if (path.length === 0) return { text: t.todoFile(state.path) }
+
+        return { text: (await setTodoPath($, path)) ? t.todoFileSet(path) : t.todoInRepo(path) }
+      }
+
+      if (isDemo) return { text: t.demoOn }
+      if (state.note === 'in-repo') return { text: t.todoInRepo(state.path) }
+
+      await update($, collapsed, now => ({ ...now, todo: false }))
+      if (argument.length === 0) {
+        await readTodos($)
+        const list = ((await read($, todo)) ?? NO_TODO).list
+
+        return { text: t.todoCount(list.filter(one => !one.isDone).length) }
+      }
+
+      return {
+        text: (await writeTodos($, content => addTodo(content, argument))) ? t.todoAdded(argument) : t.todoFailed,
+      }
+    }
+
     if (verb === 'repos') {
       const roots = rootsOf(await read($, repos))
       const removal = /^(remove|entfernen)\s+(.+)$/i.exec(argument)
@@ -894,6 +1074,16 @@ export const register: Register = (on, options) => {
     }
 
     return { text: t.help }
+  })
+
+  on('ui.focus', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    const result = await next(e)
+    // The ring left the text field, by Esc or by a click elsewhere: the field closes unsaved
+    if (e.element !== TODO_INPUT && ((await read($, todo)) ?? NO_TODO).editing !== -2) {
+      await update($, todo, now => ({ ...now, editing: -2 }))
+    }
+
+    return result
   })
 
   on('session.measure', async ($, e, next) => {
@@ -953,7 +1143,10 @@ export const register: Register = (on, options) => {
       })
     }
 
-    const { Box, Text, Link, Button } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Text, Link, Button } = elements
+    // The mobile app draws no text field, there a task comes in with /turbo todo
+    const Input = 'Input' in elements ? elements.Input : undefined
     const list = await read($, files)
     const folded = await read($, collapsed)
     const repoState = await read($, repos)
@@ -968,6 +1161,7 @@ export const register: Register = (on, options) => {
     const editor = await read($, editorPath)
     const usageState = (await read($, usage)) ?? NO_USAGE
     const feedState = (await read($, feed)) ?? NO_FEED
+    const todoState = (await read($, todo)) ?? NO_TODO
     const ticketPattern = (await read($, ticketUrl)) ?? ''
     const contextPercent = usageState.window > 0 ? Math.round((usageState.tokens / usageState.window) * 100) : 0
 
@@ -982,7 +1176,9 @@ export const register: Register = (on, options) => {
     const tall = look.background === undefined || bodyRows === undefined ? {} : { minHeight: bodyRows }
     const chip = look.chip === undefined ? {} : { backgroundColor: look.chip }
     const isFolded = (id: string): boolean => folded[id] ?? false
-    const foldedNow = (id: string): boolean => folded[id] ?? id === 'feed'
+    // The TODO list starts collapsed while it is empty, so it takes no room from the files
+    const isTodoFolded = folded.todo ?? todoState.list.length === 0
+    const foldedNow = (id: string): boolean => (id === 'todo' ? isTodoFolded : (folded[id] ?? id === 'feed'))
     const actions = terminalActions(hostInfo, '')
     const dirty = repoState.list.filter(one => !isClean(one))
     const total = list.reduce((sum, one) => sum + (one.isGone === true ? 0 : one.size), 0)
@@ -1005,7 +1201,16 @@ export const register: Register = (on, options) => {
     const shownTickets = feedState.list.slice(0, MAX_FEED_ROWS)
     const feedNote = t.feedNotes[feedState.note] ?? feedState.note
     const feedRows = !isFeedOn ? 0 : isFeedFolded ? 2 : 4 + shownTickets.length
-    const fileRoom = Math.max(1, Math.floor((rows - 4 - terminalRows - repoRows - sessionRows - feedRows - 7) / 4))
+    const sortedTodos = sortTodos(todoState.list)
+    const shownTodos = sortedTodos.slice(0, MAX_TODO_ROWS)
+    const openTodos = todoState.list.filter(one => !one.isDone).length
+    const doneTodos = todoState.list.length - openTodos
+    const todoNote = t.todoNotes[todoState.note] ?? ''
+    const todoRows = isTodoFolded ? 2 : 3 + shownTodos.length + (todoState.list.length === 0 ? 1 : 0)
+    const fileRoom = Math.max(
+      1,
+      Math.floor((rows - 4 - terminalRows - repoRows - sessionRows - feedRows - todoRows - 7) / 4),
+    )
     // The list is paged instead of scrolled, so the other widgets stay where they are
     const pageCount = Math.max(1, Math.ceil(list.length / fileRoom))
     const page = Math.min(Math.max(0, await read($, filePage)), pageCount - 1)
@@ -1087,11 +1292,13 @@ export const register: Register = (on, options) => {
     const head = (id: string, label: string, count: string, sheet = '') => (
       <Box flexDirection="row" gap={1}>
         {press(`fold:${id}`, foldedNow(id) ? '▸' : '▾', async () => {
-          const wasFolded = (await read($, collapsed))[id] ?? id === 'feed'
+          const wasFolded = (await read($, collapsed))[id] ?? foldedNow(id)
           await update($, collapsed, now => ({ ...now, [id]: !wasFolded }))
           // Read right away when the repos are expanded for the first time
           if (id === 'repos' && wasFolded && (await read($, repos)).checkedAt === 0) await refreshRepos($)
           if (id === 'feed' && wasFolded && ((await read($, feed)) ?? NO_FEED).checkedAt === 0) await refreshFeed($)
+          // The file may have been edited by hand in the meantime
+          if (id === 'todo' && wasFolded) await readTodos($)
         })}
         <Text bold color={look.accent}>
           {label}
@@ -1466,6 +1673,102 @@ export const register: Register = (on, options) => {
                 {feedState.checkedAt > 0 ? formatClock(feedState.checkedAt) : ''}
               </Text>
             </Box>
+          </Box>
+        )}
+
+        {rule}
+        {head('todo', t.todo, todoNote.length > 0 ? '' : t.todoOpen(openTodos))}
+        {!isTodoFolded && (
+          <Box flexDirection="column" marginLeft={2}>
+            {todoNote.length > 0 && (
+              <Text color={look.warn} wrap="wrap">
+                {todoNote}
+              </Text>
+            )}
+            {todoNote.length === 0 && todoState.list.length === 0 && todoState.editing === -2 && (
+              <Text dimColor {...ink}>
+                {t.todoEmpty}
+              </Text>
+            )}
+            {shownTodos.map(item =>
+              todoState.editing === item.line && Input !== undefined ? (
+                <Input
+                  key={TODO_INPUT}
+                  value={item.text}
+                  submitLabel={t.todoSave}
+                  autoFocus
+                  onSubmit={value => saveTodo($, item, value)}
+                />
+              ) : (
+                <Box flexDirection="row" columnGap={1}>
+                  <Box flexShrink={0} flexDirection="row" columnGap={1}>
+                    {press(`todo:done:${item.line}`, item.isDone ? '[x]' : '[ ]', () =>
+                      writeTodos($, content => changeTodo(content, item, now => ({ ...now, isDone: !now.isDone }))),
+                    )}
+                    {press(
+                      `todo:remove:${item.line}`,
+                      armedKey === `todo:remove:${item.line}` ? t.confirmRun : '✕',
+                      async () => {
+                        if (await isSecondPress($, `todo:remove:${item.line}`)) {
+                          await writeTodos($, content => changeTodo(content, item, () => undefined))
+                        }
+                      },
+                      true,
+                    )}
+                  </Box>
+                  <Box flexShrink={1}>
+                    {item.isDone ? (
+                      <Text dimColor strikethrough wrap="truncate-end">
+                        {item.text}
+                      </Text>
+                    ) : (
+                      // The text is a button, so it can be pressed: twice in a row opens the field
+                      <Box {...chip}>
+                        <Button
+                          key={`todo:text:${item.line}`}
+                          plain
+                          onPress={async () => {
+                            if (await isDoublePress($, `todo:text:${item.line}`)) await editTodo($, item.line)
+                          }}
+                        >
+                          {fitTodoText(item.text, columns - 9)}
+                        </Button>
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+              ),
+            )}
+            {sortedTodos.length > shownTodos.length && (
+              <Text dimColor {...ink}>
+                {t.more(sortedTodos.length - shownTodos.length)}
+              </Text>
+            )}
+            {todoState.editing === -1 && Input !== undefined && (
+              <Input
+                key={TODO_INPUT}
+                placeholder={t.todoPlaceholder}
+                submitLabel={t.todoSave}
+                autoFocus
+                onSubmit={value => saveTodo($, undefined, value)}
+              />
+            )}
+            {todoNote !== t.todoNotes['in-repo'] && (
+              <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+                {Input !== undefined && todoState.editing === -2 && press('todo:add', '+', () => editTodo($, -1))}
+                {todoState.editing !== -2 && press('todo:cancel', t.todoCancel, () => editTodo($, -2), true)}
+                {doneTodos > 0 &&
+                  press(
+                    'todo:tidy',
+                    armedKey === 'todo:tidy' ? t.confirmRun : t.todoTidy(doneTodos),
+                    async () => {
+                      if (await isSecondPress($, 'todo:tidy')) await writeTodos($, clearDoneTodos)
+                    },
+                    true,
+                  )}
+                {press('todo:refresh', t.reread, () => readTodos($), true)}
+              </Box>
+            )}
           </Box>
         )}
 

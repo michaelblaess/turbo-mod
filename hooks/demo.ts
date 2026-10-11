@@ -1,13 +1,19 @@
 // Invented data for screenshots - without $ and therefore directly testable.
 // Nothing here comes from a real machine: the paths, repos and tickets are made up.
 
-import type { FeedState, FileEntry, ReposState, UsageState } from '../types'
+import type { FeedState, FileEntry, ReposState, TodoItem, UsageState } from '../types'
 
 const HOME = '/home/sam/projects'
 const MINUTE = 60000
 const HOUR = 60 * MINUTE
 
-export type DemoState = { files: FileEntry[]; repos: ReposState; feed: FeedState; usage: UsageState }
+export type DemoState = {
+  files: FileEntry[]
+  repos: ReposState
+  feed: FeedState
+  usage: UsageState
+  todos: TodoItem[]
+}
 
 /** Everything the pane shows, filled with made-up content around the moment `now`. */
 export const demoState = (now: number): DemoState => {
@@ -68,6 +74,12 @@ export const demoState = (now: number): DemoState => {
       isBusy: false,
       note: '',
     },
+    todos: [
+      { line: 0, text: 'Write the release notes', isDone: false },
+      { line: 1, text: 'Idea: a dark variant of the logo', isDone: false },
+      { line: 2, text: 'Tidy up the old branches', isDone: false },
+      { line: 3, text: 'Update the README screenshots', isDone: true },
+    ],
     usage: {
       measuredAt: now,
       tokens: 42000,

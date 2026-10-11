@@ -56,6 +56,20 @@ export type Texts = {
   feedNone: string
   /** Notes of the feed, keys as in feed.ts and register.tsx. */
   feedNotes: Record<string, string>
+  todo: string
+  todoOpen: (open: number) => string
+  todoCount: (open: number) => string
+  todoEmpty: string
+  todoPlaceholder: string
+  todoSave: string
+  todoCancel: string
+  todoTidy: (done: number) => string
+  todoAdded: (text: string) => string
+  todoFailed: string
+  todoFile: (path: string) => string
+  todoFileSet: (path: string) => string
+  todoInRepo: (path: string) => string
+  todoNotes: Record<string, string>
   noticeTitle: string
   notice: string
   accept: string
@@ -150,6 +164,24 @@ const DE: Texts = {
     'no-json': 'Der Befehl hat kein JSON ausgegeben.',
     'no-start': 'Der Befehl ließ sich nicht starten oder hat nicht geantwortet.',
   },
+  todo: 'TODO',
+  todoOpen: open => (open === 0 ? '' : `${open} offen`),
+  todoCount: open => (open === 1 ? '1 Aufgabe offen.' : `${open} Aufgaben offen.`),
+  todoEmpty: 'Noch keine Aufgaben.',
+  todoPlaceholder: 'Neue Aufgabe',
+  todoSave: 'speichern',
+  todoCancel: 'abbrechen',
+  todoTidy: done => `${done} erledigte entfernen`,
+  todoAdded: text => `Aufgabe angelegt: ${text}`,
+  todoFailed: 'Die Datei der TODO-Liste ließ sich nicht schreiben.',
+  todoFile: path => `Die TODO-Liste liegt in: ${path}`,
+  todoFileSet: path => `Die TODO-Liste liegt jetzt in: ${path}`,
+  todoInRepo: path =>
+    `${path} liegt in einem Git-Repo. Die TODO-Liste gehört nicht in eine Historie, /turbo todo datei <pfad> setzt einen anderen Ort.`,
+  todoNotes: {
+    'in-repo': 'Die Datei liegt in einem Git-Repo. /turbo todo datei <pfad> setzt einen anderen Ort.',
+    unreadable: 'Die Datei ließ sich nicht lesen oder schreiben.',
+  },
   noticeTitle: 'Disclaimer',
   notice:
     'Turbo-MOD startet Programme auf Deinem Rechner, führt auf Knopfdruck git fetch und git pull in Deinen Repos aus und kann einen von Dir eingestellten Befehl starten. Du nutzt den Mod auf eigene Verantwortung und ohne Gewähr, siehe Lizenz (Apache 2.0).',
@@ -168,6 +200,8 @@ const DE: Texts = {
   commandDescription: 'Turbo-MOD: Pane ein- oder ausblenden, Farbschema, Sprache und Repo-Ordner setzen',
   help: [
     '/turbo                 Pane ein- oder ausblenden',
+    '/turbo todo <text>     Aufgabe anlegen, ohne Text: offene zählen',
+    '/turbo todo datei <pfad>  Datei der TODO-Liste setzen, ohne Pfad: anzeigen',
     '/turbo theme <name>    Farbschema wählen, ohne Namen: Liste',
     '/turbo repos <pfad>    Repo-Ordner hinzufügen, ohne Pfad: neu lesen',
     '/turbo repos entfernen <pfad>  Repo-Ordner wieder entfernen',
@@ -258,6 +292,24 @@ const EN: Texts = {
     'no-json': 'The command did not print JSON.',
     'no-start': 'The command could not be started or did not answer.',
   },
+  todo: 'TODO',
+  todoOpen: open => (open === 0 ? '' : `${open} open`),
+  todoCount: open => (open === 1 ? '1 task open.' : `${open} tasks open.`),
+  todoEmpty: 'No tasks yet.',
+  todoPlaceholder: 'New task',
+  todoSave: 'save',
+  todoCancel: 'cancel',
+  todoTidy: done => `remove ${done} done`,
+  todoAdded: text => `Task added: ${text}`,
+  todoFailed: 'The file of the TODO list could not be written.',
+  todoFile: path => `The TODO list is kept in: ${path}`,
+  todoFileSet: path => `The TODO list is now kept in: ${path}`,
+  todoInRepo: path =>
+    `${path} lies inside a git repo. The TODO list does not belong in a history, /turbo todo file <path> sets another place.`,
+  todoNotes: {
+    'in-repo': 'The file lies inside a git repo. /turbo todo file <path> sets another place.',
+    unreadable: 'The file could not be read or written.',
+  },
   noticeTitle: 'Disclaimer',
   notice:
     'Turbo-MOD starts programs on your machine, runs git fetch and git pull in your repos when you press the buttons, and can start a command you have set. You use the mod at your own risk and without warranty, see the license (Apache 2.0).',
@@ -276,6 +328,8 @@ const EN: Texts = {
   commandDescription: 'Turbo-MOD: show or hide the pane, set color scheme, language and repo folder',
   help: [
     '/turbo                  show or hide the pane',
+    '/turbo todo <text>      add a task, without text: count the open ones',
+    '/turbo todo file <path> set the file of the TODO list, without path: show it',
     '/turbo theme <name>     pick a color scheme, without a name: the list',
     '/turbo repos <path>     add a repo folder, without a path: refresh',
     '/turbo repos remove <path>  remove a repo folder again',

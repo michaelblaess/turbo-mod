@@ -1,7 +1,7 @@
 {
   "name": "turbo-mod",
-  "version": "0.15.0",
-  "description": "A side pane for Claude Code with collapsible widgets: files Claude wrote, terminal splits and the state of your git repos, in retro colors.",
+  "version": "0.16.0",
+  "description": "A side pane for Claude Code with collapsible widgets: files Claude wrote, terminal splits, the state of your git repos and a TODO list, in retro colors.",
   "author": {
     "name": "Michael Blaess"
   },

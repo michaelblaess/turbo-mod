@@ -80,6 +80,25 @@ export type FeedState = {
   note: string
 }
 
+export type TodoItem = {
+  /** Line of the task in the file, from 0. */
+  line: number
+  text: string
+  isDone: boolean
+}
+
+export type TodoState = {
+  /** Full path of the Markdown file that holds the list, empty until the start has run. */
+  path: string
+  list: TodoItem[]
+  /** What the field in the pane edits: -2 nothing, -1 a new task, otherwise the line of a task. */
+  editing: number
+  /** Time of the last reading, 0 as long as none has run. */
+  checkedAt: number
+  /** Key of a note for the display ("in-repo", "unreadable"), otherwise empty. */
+  note: string
+}
+
 export type UsageLimit = {
   /** Name of the window as the host reports it, for example "five_hour". */
   kind: string
@@ -128,6 +147,7 @@ declare module 'claude-code' {
       editorPath: string
       usage: UsageState
       feed: FeedState
+      todo: TodoState
       /** Address of a ticket with the placeholder {id}, empty if none is set. */
       ticketUrl: string
     }

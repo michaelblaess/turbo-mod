@@ -19,6 +19,8 @@ und zeigt, wonach Du sonst immer wieder fragst:
   voll der Kontext ist
 - **Neue Tickets** - optional, in der Vorgabe aus: neue Tickets aus Deinem Ticketsystem. Braucht
   ein zweites Programm auf Deinem Rechner, für Jira ist das [jira-timesheet](https://github.com/michaelblaess/jira-timesheet)
+- **TODO** - eine einfache Liste für Ideen und Erinnerungen. Sie liegt als Markdown-Datei auf
+  Deinem Rechner
 
 Dazu kommen 41 Retro-Farbschemata, Englisch und Deutsch als Sprache und ein Titel, der einen
 kleinen Texteffekt abspielt.
@@ -212,6 +214,37 @@ Du nennst ihn mit `/turbo feed <befehl>`. Je Ticket ist nur `key` Pflicht, weite
 Eine `message` in diesem Objekt erscheint statt der Liste, etwa wenn der Befehl den Server nicht
 erreicht hat.
 
+### TODO
+
+Eine einfache Liste für Ideen und für Dinge, die Du nicht vergessen willst.
+
+- `+` blendet ein Textfeld ein. Enter speichert die Aufgabe, `[abbrechen]` verwirft sie.
+- `[ ]` hakt eine Aufgabe ab, erledigte stehen durchgestrichen unten.
+- Ein Doppelklick auf den Text holt ihn zum Bearbeiten ins Textfeld zurück.
+- `✕` löscht die Aufgabe nach einer Rückfrage.
+- `[N erledigte entfernen]` räumt alles Abgehakte weg, ebenfalls nach einer Rückfrage.
+- `/turbo todo <text>` legt eine Aufgabe an, ohne dass Du das Pane anfasst.
+
+Solange die Liste leer ist, bleibt der Abschnitt eingeklappt. Der Kopf zeigt die Zahl der
+offenen Aufgaben auch dann.
+
+Eine lange Aufgabe kürzt das Pane mit drei Punkten, im Textfeld steht der ganze Text. Eine
+erledigte Aufgabe lässt sich erst bearbeiten, wenn der Haken wieder draußen ist. Der Cursor
+springt nur dann von selbst ins Textfeld, wenn Deine Eingabezeile leer ist.
+
+Die Aufgaben liegen in einer Markdown-Datei auf Deinem Rechner, als Vorgabe in
+`~/.claude/turbo-mod-todo.md`. Du kannst sie in jedem Editor bearbeiten:
+
+```markdown
+- [ ] Release-Notizen schreiben
+- [ ] Idee: dunkle Variante des Logos
+- [x] Alte Branches aufräumen
+```
+
+Zeilen, die keine Aufgabe sind, lässt der Mod stehen. `/turbo todo datei <pfad>` legt die Liste
+an einen anderen Ort. Ein Ordner in einem Git-Repo wird abgelehnt, damit die Aufgaben nie in
+einer Historie landen.
+
 ## Befehle
 
 | Befehl | Wirkung |
@@ -222,6 +255,8 @@ erreicht hat.
 | `/turbo repos entfernen <pfad>` | Repo-Ordner aus der Liste nehmen |
 | `/turbo ticket <adresse>` | Ticket-Adresse mit `{id}`, ohne Adresse: anzeigen |
 | `/turbo feed <befehl>` | Widget Neue Tickets einschalten, `aus` schaltet es ab |
+| `/turbo todo <text>` | Aufgabe in die TODO-Liste legen, ohne Text: offene zählen |
+| `/turbo todo datei <pfad>` | Datei der TODO-Liste setzen, ohne Pfad: anzeigen |
 | `/turbo sprache <de\|en>` | Sprache des Panes und der Antworten |
 | `/turbo leeren` | Liste der Dateien zurücksetzen, die Nummern beginnen wieder bei 1 |
 | `/turbo effekt` | Titeleffekt aus- oder einschalten |

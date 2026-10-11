@@ -1,5 +1,8 @@
 {
   "name": "turbo-mod",
   "owner": { "name": "Michael Blaess" },
+  "metadata": {
+    "description": "Turbo-MOD: a side pane for Claude Code with files, terminal splits, git repos, usage and a TODO list."
+  },
   "plugins": [{ "name": "turbo-mod", "source": "./" }]
 }

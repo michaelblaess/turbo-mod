@@ -17,6 +17,8 @@ conversation and shows what you otherwise keep asking for:
 - **Claude** - how much of your limits is used, when they reset and how full the context is
 - **New tickets** - optional, off by default: new tickets from your ticket system. Needs a second
   program on your machine, for Jira that is [jira-timesheet](https://github.com/michaelblaess/jira-timesheet)
+- **TODO** - a plain list for ideas and reminders. It is kept as a Markdown file on your
+  machine
 
 It comes with 41 retro color schemes, speaks English and German, and plays a small text effect
 in its title.
@@ -203,6 +205,36 @@ with `/turbo feed <command>`. Only `key` is required per ticket, other fields ar
 A `message` in that object is shown instead of the list, for example when the command could
 not reach the server.
 
+### TODO
+
+A plain list for ideas and for things you do not want to forget.
+
+- `+` shows a text field. Enter saves the task, `[cancel]` drops it.
+- `[ ]` ticks a task off, done ones are struck through at the bottom.
+- A double click on the text brings it back into the field for editing.
+- `✕` removes the task after asking once.
+- `[remove N done]` clears everything that is ticked off, after asking once as well.
+- `/turbo todo <text>` adds a task without touching the pane.
+
+While the list is empty the section stays collapsed. Its head shows the number of open tasks
+even then.
+
+The pane cuts a long task with three dots, the text field holds the whole text. A done task
+can only be edited once its tick is removed. The cursor jumps into the text field by itself
+only while your prompt is empty.
+
+The tasks are kept in a Markdown file on your machine, by default
+`~/.claude/turbo-mod-todo.md`. You can edit it in any editor:
+
+```markdown
+- [ ] Write the release notes
+- [ ] Idea: a dark variant of the logo
+- [x] Tidy up the old branches
+```
+
+Lines that are no task stay as they are. `/turbo todo file <path>` moves the list somewhere
+else. A folder inside a git repo is refused, so the tasks never end up in a history.
+
 ## Commands
 
 | Command | What it does |
@@ -213,6 +245,8 @@ not reach the server.
 | `/turbo repos remove <path>` | remove a repo folder from the list |
 | `/turbo ticket <address>` | ticket address with `{id}`, without an address: show it |
 | `/turbo feed <command>` | switch on the widget New tickets, `off` switches it off |
+| `/turbo todo <text>` | add a task to the TODO list, without text: count the open ones |
+| `/turbo todo file <path>` | set the file of the TODO list, without path: show it |
 | `/turbo lang <de\|en>` | language of the pane and of the answers |
 | `/turbo clear` | reset the list of files, numbering starts again at 1 |
 | `/turbo effect` | switch the title effect off or on |
