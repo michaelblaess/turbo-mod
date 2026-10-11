@@ -11,6 +11,8 @@ export type FileEntry = {
   writes: number
   /** Running number in order of the first write, from 1. Stays the same on later writes. */
   no: number
+  /** True once the file no longer exists. The entry stays in the list, struck through. */
+  isGone?: boolean
 }
 
 export type HostInfo = {

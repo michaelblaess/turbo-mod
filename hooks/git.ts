@@ -53,3 +53,93 @@ export const repoCounts = (repo: RepoEntry): string =>
   ]
     .filter(part => part.length > 0)
     .join(' ')
+
+// One call for both: the top folder of the repo and the commit it stands on. Fails outside a repo.
+export const TOP_HEAD_ARGV = ['git', 'rev-parse', '--show-toplevel', 'HEAD'] as const
+// Every untracked file by name instead of one line per folder
+export const CHANGES_ARGV = ['git', 'status', '--porcelain=v2', '--branch', '--untracked-files=all'] as const
+
+/** A file a shell command touched, as git names it: relative to the top folder, forward slashes. */
+export type ChangeEntry = { path: string; isNew: boolean; isGone: boolean }
+
+/** Files changed between two commits, without rename detection: a rename is one gone and one new. */
+export const diffArgv = (before: string, after: string): string[] => [
+  'git',
+  'diff',
+  '--name-status',
+  '--no-renames',
+  before,
+  after,
+]
+
+// The part of a line behind its first `count` fields. Paths may contain spaces, fields may not.
+const afterFields = (line: string, count: number): string => {
+  let at = 0
+  for (let field = 0; field < count; field += 1) {
+    const space = line.indexOf(' ', at)
+    if (space < 0) return ''
+    at = space + 1
+  }
+
+  return line.slice(at)
+}
+
+// git quotes a path with special characters. Such a path is left out instead of guessed.
+const isPlain = (path: string): boolean => path.length > 0 && !path.startsWith('"')
+
+/** The commit and the changed files from `git status --porcelain=v2 --branch`. */
+export const parseChanges = (stdout: string): { head: string; list: ChangeEntry[] } => {
+  let head = ''
+  const list: ChangeEntry[] = []
+
+  for (const line of stdout.split('\n')) {
+    if (line.startsWith('# branch.oid ')) {
+      head = line.slice('# branch.oid '.length).trim()
+      continue
+    }
+
+    if (line.startsWith('? ')) {
+      const path = line.slice(2).trim()
+      if (isPlain(path)) list.push({ path, isNew: true, isGone: false })
+      continue
+    }
+
+    // 1 = changed (8 fields before the path), 2 = renamed (9, then a tab and the old path), u = conflict (10)
+    const fields = line.startsWith('1 ') ? 8 : line.startsWith('2 ') ? 9 : line.startsWith('u ') ? 10 : 0
+    if (fields === 0) continue
+
+    const path = (afterFields(line, fields).split('\t')[0] ?? '').trim()
+    // XY: X is the index, Y the working tree
+    const index = line.charAt(2)
+    const tree = line.charAt(3)
+    if (isPlain(path))
+      list.push({ path, isNew: index === 'A', isGone: tree === 'D' || (index === 'D' && tree === '.') })
+  }
+
+  return { head, list }
+}
+
+/** The files from `git diff --name-status --no-renames`. */
+export const parseDiff = (stdout: string): ChangeEntry[] => {
+  const list: ChangeEntry[] = []
+
+  for (const line of stdout.split('\n')) {
+    const [status = '', path = ''] = line.split('\t')
+    if (status.length === 0 || !isPlain(path.trim())) continue
+
+    list.push({ path: path.trim(), isNew: status.startsWith('A'), isGone: status.startsWith('D') })
+  }
+
+  return list
+}
+
+/** Absolute path of a file in a repo. On a Windows drive with backslashes, as the write tools name it. */
+export const repoPath = (top: string, relative: string): string => {
+  const joined = `${top.replace(/[\\/]+$/, '')}/${relative}`
+
+  return /^[A-Za-z]:[\\/]/.test(top) ? joined.replaceAll('/', '\\') : joined
+}
+
+/** Two spellings of one Windows path compare equal: slashes and case do not count there. */
+export const pathKey = (path: string): string =>
+  /^[A-Za-z]:[\\/]/.test(path) ? path.replaceAll('/', '\\').toLowerCase() : path

@@ -7,6 +7,7 @@ export type Texts = {
   files: string
   fileCount: (count: number) => string
   nothingWritten: string
+  gone: string
   more: (count: number) => string
   range: (from: number, to: number, total: number) => string
   clearList: string
@@ -89,6 +90,7 @@ const DE: Texts = {
   files: 'Dateien',
   fileCount: count => (count === 1 ? '1 Datei' : `${count} Dateien`),
   nothingWritten: 'Noch nichts geschrieben. Hier erscheint jede Datei, die Claude anlegt oder ändert.',
+  gone: 'gelöscht',
   more: count => `... und ${count} weitere`,
   range: (from, to, total) => `${from}-${to} von ${total}`,
   clearList: 'Liste leeren',
@@ -191,6 +193,7 @@ const EN: Texts = {
   files: 'Files',
   fileCount: count => (count === 1 ? '1 file' : `${count} files`),
   nothingWritten: 'Nothing written yet. Every file Claude creates or changes shows up here.',
+  gone: 'deleted',
   more: count => `... and ${count} more`,
   range: (from, to, total) => `${from}-${to} of ${total}`,
   clearList: 'clear list',

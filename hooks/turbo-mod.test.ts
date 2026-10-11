@@ -1,7 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-
-import { decryptFrame, effectFrame, errorcorrectFrame, wipeFrame } from './effects'
 import { demoState } from './demo'
+import { decryptFrame, effectFrame, errorcorrectFrame, wipeFrame } from './effects'
 import { parseFeed } from './feed'
 import {
   barCells,
@@ -19,7 +18,7 @@ import {
   ticketOf,
   workingLabel,
 } from './format'
-import { isClean, parseStatus, repoCounts, sortRepos } from './git'
+import { isClean, parseChanges, parseDiff, parseStatus, pathKey, repoCounts, repoPath, sortRepos } from './git'
 import {
   copyFileArgv,
   copyTextArgv,
@@ -829,4 +828,146 @@ test('/turbo demo fills the pane with made-up data and gives the real state back
   expect((await $.command.run({ command: 'turbo', args: 'demo' } as never)).text).toEqual('Sample data hidden.')
   expect((await ui.findAll({ text: /release-notes\.md/ })).length).toEqual(0)
   expect((await ui.findAll({ text: /^New tickets$/ })).length).toEqual(0)
+})
+
+test('parseChanges reads the commit and the changed files, a quoted path is left out', () => {
+  const stdout = [
+    '# branch.oid 1a2b3c',
+    '# branch.head main',
+    '1 .M N... 100644 100644 100644 aaa bbb docs/mit leerzeichen.md',
+    '1 A. N... 000000 100644 100644 000 bbb neu.md',
+    '1 .D N... 100644 100644 000000 aaa aaa weg.md',
+    '2 R. N... 100644 100644 100644 aaa bbb R100 neuer name.md\talter name.md',
+    '? ordner/unbekannt.md',
+    '? "sonder\\303\\244.md"',
+  ].join('\n')
+
+  expect(parseChanges(stdout)).toEqual({
+    head: '1a2b3c',
+    list: [
+      { path: 'docs/mit leerzeichen.md', isNew: false, isGone: false },
+      { path: 'neu.md', isNew: true, isGone: false },
+      { path: 'weg.md', isNew: false, isGone: true },
+      { path: 'neuer name.md', isNew: false, isGone: false },
+      { path: 'ordner/unbekannt.md', isNew: true, isGone: false },
+    ],
+  })
+})
+
+test('parseDiff reads added, changed and deleted files of a commit', () => {
+  expect(parseDiff('M\tsrc/a.ts\nA\tsrc/b.ts\nD\talt.md\n')).toEqual([
+    { path: 'src/a.ts', isNew: false, isGone: false },
+    { path: 'src/b.ts', isNew: true, isGone: false },
+    { path: 'alt.md', isNew: false, isGone: true },
+  ])
+})
+
+test('repoPath names a file the way the write tools do, pathKey ignores slashes and case on Windows', () => {
+  expect(repoPath('C:/Users/me/repo', 'src/a.ts')).toEqual('C:\\Users\\me\\repo\\src\\a.ts')
+  expect(repoPath('/home/me/repo/', 'src/a.ts')).toEqual('/home/me/repo/src/a.ts')
+  expect(pathKey('C:/Users/Me/a.md')).toEqual(pathKey('c:\\users\\me\\A.md'))
+  // POSIX paths are case-sensitive and stay as they are
+  expect(pathKey('/home/Me/a.md')).toEqual('/home/Me/a.md')
+})
+
+const SHELL_START = 1760000000000
+const RAN_OK = { exitCode: 0, stderr: '', isStdoutTruncated: false, isStderrTruncated: false }
+const NO_FILE = { value: { kind: 'other', size: 0, mtimeMs: 0, isLink: false } } as const
+
+test('a shell call that commits lists its files, a deleted file stays struck through', GERMAN, async ($, on) => {
+  let head = 'aaa'
+  let isNoteGone = false
+  const started: string[] = []
+  on('clock.now', () => ({ value: SHELL_START }))
+  on('session.cwd', () => ({ value: 'C:\\repo\\sub' }))
+  on('process.run', (_$, e) => {
+    started.push(e.argv.join(' '))
+    const stdout =
+      e.argv[1] === 'rev-parse'
+        ? `C:/repo\n${head}\n`
+        : e.argv[1] === 'status'
+          ? `# branch.oid ${head}\n1 .M N... 100644 100644 100644 abc abc alt/lange da.md\n? neu/skript.md\n`
+          : e.argv[1] === 'diff'
+            ? 'M\tblog/beitrag.md\nD\tentwurf/weg.md\n'
+            : ''
+
+    return { value: { ...RAN_OK, stdout } }
+  })
+  on('fs.stat', (_$, e) => {
+    const path = String(e.path)
+    if (path.endsWith('weg.md') || (isNoteGone && path.endsWith('notiz.md'))) return NO_FILE
+
+    // lange da.md was changed a minute before the call and does not belong to it
+    const mtimeMs = path.endsWith('lange da.md') ? SHELL_START - 60000 : SHELL_START + 500
+
+    return { value: { kind: 'file', size: 1024, mtimeMs, isLink: false } }
+  })
+  on('tool.call', { tool: 'Write' }, () => ({
+    result: { type: 'update', filePath: 'C:\\repo\\notiz.md', content: 'x', structuredPatch: [], originalFile: 'x' },
+  }))
+  on('tool.call', { tool: 'Bash' }, () => {
+    // The command writes two files, commits one of them and removes two
+    head = 'bbb'
+    isNoteGone = true
+
+    return { result: { stdout: '', stderr: '', interrupted: false } } as never
+  })
+
+  await $.tool.call({ tool: 'Write', file_path: 'C:\\repo\\notiz.md', content: 'x' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'python patch.py && git commit -m x' } as never)
+
+  // The status is not enough after a commit, the diff between the two commits is asked as well
+  expect(started.includes('git diff --name-status --no-renames aaa bbb')).toEqual(true)
+
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  // A deleted file has no size any more: two files of 1 KB each remain
+  expect(await ui.find({ text: /4 Dateien · 2,0 KB/ })).toBeDefined()
+  // Two files fit on a page. The first shows the file deleted by the commit and the untracked new one.
+  expect(await ui.find({ text: /weg\.md/ })).toBeDefined()
+  expect(await ui.find({ text: /skript\.md/ })).toBeDefined()
+  expect(await ui.find({ text: /gelöscht/ })).toBeDefined()
+  expect(await ui.findAll({ text: /notiz/ })).toEqual([])
+
+  // The second shows the committed file and the one that was in the list before and is gone now
+  await ui.press({ key: 'files:next' })
+  expect(await ui.find({ text: /beitrag\.md/ })).toBeDefined()
+  expect(await ui.find({ text: /notiz\.md/ })).toBeDefined()
+  expect(await ui.find({ text: /gelöscht/ })).toBeDefined()
+  expect(await ui.findAll({ text: /weg/ })).toEqual([])
+  expect(await ui.findAll({ text: /lange da\.md/ })).toEqual([])
+})
+
+test('outside a git repo a shell call asks git once and lists nothing', GERMAN, async ($, on) => {
+  const started: string[] = []
+  on('clock.now', () => ({ value: SHELL_START }))
+  on('session.cwd', () => ({ value: '/tmp' }))
+  on('process.run', (_$, e) => {
+    started.push(e.argv.join(' '))
+
+    return { value: { ...RAN_OK, exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' } }
+  })
+  on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: SHELL_START + 500, isLink: false } }))
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '', interrupted: false } }) as never)
+
+  await $.tool.call({ tool: 'Bash', command: 'echo x > a.md' } as never)
+
+  expect(started).toEqual(['git rev-parse --show-toplevel HEAD'])
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  expect(await ui.find({ text: /Noch nichts geschrieben/ })).toBeDefined()
+})
+
+test('a shell call that touches dozens of files is a pull or an install and lists nothing', GERMAN, async ($, on) => {
+  const many = Array.from({ length: 30 }, (_one, index) => `? paket/datei${index}.js`).join('\n')
+  on('clock.now', () => ({ value: SHELL_START }))
+  on('session.cwd', () => ({ value: '/repo' }))
+  on('process.run', (_$, e) => ({
+    value: { ...RAN_OK, stdout: e.argv[1] === 'rev-parse' ? '/repo\naaa\n' : `# branch.oid aaa\n${many}\n` },
+  }))
+  on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: SHELL_START + 500, isLink: false } }))
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '', interrupted: false } }) as never)
+
+  await $.tool.call({ tool: 'Bash', command: 'npm install' } as never)
+
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  expect(await ui.find({ text: /Noch nichts geschrieben/ })).toBeDefined()
 })

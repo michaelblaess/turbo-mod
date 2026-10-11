@@ -87,10 +87,12 @@ columns wide. In a narrower window, type `/turbo`.
 
 ### Files
 
-Every file Claude wrote through `Write`, `Edit` or `NotebookEdit`, newest on top:
+Every file Claude wrote through `Write`, `Edit` or `NotebookEdit`, newest on top. Files a shell
+command created or changed in a git repo are listed as well:
 
 - a running number, in the order the files were first written
-- `+` for a new file, `~` for a changed one
+- `+` for a new file, `~` for a changed one, `-` for a deleted one
+- a deleted file stays in the list, struck through. Only its `[path]` button remains.
 - the file name and its folder as links
 - size, time of the last write and how often it was written
 - a button with the name of your editor (`[nvim]` by default) that opens the file in a new
@@ -248,7 +250,15 @@ After an update, type `/reload-plugins` in a running session.
 
 ## Limits
 
-- Files created by a shell command (a redirect, a copy, a script) are not seen.
+- Files from a shell command (a redirect, a copy, a script) are found through git. After every
+  command the mod asks for the state of the repo the session runs in, including a new commit.
+  Outside a git repo, and in a repo other than the one of the session, it does not see them.
+- A file git ignores does not show up after a shell command.
+- A command that changes more than 25 files counts as a pull, a checkout or an install and is
+  not listed.
+- A shell command that deletes a file is only noticed if the file was already in the list or
+  the deletion was committed.
+- Whether a listed file still exists is checked every 15 seconds and after every shell command.
 - The desktop app gets no `file:` links, the path is shown as text there.
 - Windows Terminal has no command to close a pane and none to split to the left. The split to
   the left therefore splits to the right and swaps the two panes. `[Close last pane]` moves the

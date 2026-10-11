@@ -92,10 +92,12 @@ das Pane auf Deutsch.
 
 ### Dateien
 
-Jede Datei, die Claude über `Write`, `Edit` oder `NotebookEdit` geschrieben hat, die jüngste oben:
+Jede Datei, die Claude über `Write`, `Edit` oder `NotebookEdit` geschrieben hat, die jüngste oben.
+Dazu kommen Dateien, die ein Shell-Kommando in einem Git-Repo angelegt oder geändert hat:
 
 - laufende Nummer in der Reihenfolge des ersten Schreibens
-- `+` für neu angelegt, `~` für geändert
+- `+` für neu angelegt, `~` für geändert, `-` für gelöscht
+- eine gelöschte Datei bleibt durchgestrichen stehen. Ihr bleibt nur der Knopf `[Pfad]`.
 - Dateiname und Ordner als Links
 - Größe, Zeitpunkt des letzten Schreibens und wie oft die Datei geschrieben wurde
 - ein Knopf mit dem Namen Deines Editors (Vorgabe `[nvim]`), der die Datei in einem neuen Split
@@ -256,7 +258,16 @@ Nach einer Aktualisierung in einer laufenden Sitzung `/reload-plugins` tippen.
 
 ## Grenzen
 
-- Dateien, die ein Shell-Kommando erzeugt (Umleitung, Kopie, ein Skript), sieht der Mod nicht.
+- Dateien aus einem Shell-Kommando (Umleitung, Kopie, ein Skript) findet der Mod über git. Er fragt
+  nach jedem Kommando den Stand des Repos ab, in dem die Sitzung läuft, auch einen neuen Commit.
+  Außerhalb eines Git-Repos und in einem anderen Repo als dem der Sitzung sieht er sie nicht.
+- Eine Datei, die git ignoriert, erscheint nach einem Shell-Kommando nicht.
+- Ändert ein Kommando mehr als 25 Dateien, gilt es als Pull, Checkout oder Installation und
+  wird nicht aufgelistet.
+- Ein Shell-Kommando, das eine Datei löscht, wird nur erkannt, wenn die Datei schon in der Liste
+  stand oder die Löschung committet wurde.
+- Ob eine gelistete Datei noch existiert, prüft der Mod alle 15 Sekunden und nach jedem
+  Shell-Kommando.
 - In der Desktop-App gibt es keine `file:`-Links, dort steht der Pfad als Text.
 - Windows Terminal hat kein Kommando zum Schließen eines Panes und keines für einen Split nach
   links. Der Split nach links teilt deshalb rechts und tauscht die beiden Panes.

@@ -2,9 +2,9 @@ import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 
 import type { FeedState, FileEntry, HostInfo, RepoEntry, ReposState, UsageState } from '../types'
+import { demoState } from './demo'
 import type { EffectName } from './effects'
 import { EFFECTS, effectFrame } from './effects'
-import { demoState } from './demo'
 import { parseFeed } from './feed'
 import {
   barCells,
@@ -23,7 +23,23 @@ import {
   ticketOf,
   workingLabel,
 } from './format'
-import { FETCH_ARGV, isClean, PULL_ARGV, parseStatus, repoCounts, STATUS_ARGV, sortRepos } from './git'
+import type { ChangeEntry } from './git'
+import {
+  CHANGES_ARGV,
+  diffArgv,
+  FETCH_ARGV,
+  isClean,
+  PULL_ARGV,
+  parseChanges,
+  parseDiff,
+  parseStatus,
+  pathKey,
+  repoCounts,
+  repoPath,
+  STATUS_ARGV,
+  sortRepos,
+  TOP_HEAD_ARGV,
+} from './git'
 import {
   CHEAT_SHEET,
   CLAUDE_SHEET,
@@ -45,7 +61,7 @@ import { findLanguage, LANGUAGES, textsFor } from './texts'
 import { findTheme, lookFor, STANDARD, themeNames } from './theme'
 
 // Must match the version in .claude-plugin/plugin.json
-const VERSION = '0.13.0'
+const VERSION = '0.14.0'
 
 const PANE = 'turbo-mod'
 const PANE_TITLE = 'Turbo-MOD'
@@ -63,6 +79,13 @@ const MAX_FILES = 200
 const MAX_REPOS = 80
 // Tools that write a file and carry its path in the call
 const WRITERS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
+// A shell changes files without naming them in the call, git tells afterwards which ones
+const SHELLS = ['Bash', 'PowerShell']
+// More files than this from one call is a pull, a checkout or an install, nothing to list
+const MAX_SHELL_FILES = 25
+// A repo with more changed files than this is not looked through after every call
+const MAX_SHELL_CANDIDATES = 400
+const FILES_EVERY_MS = 15000
 const TITLE_FRAMES = 14
 const TITLE_FRAME_MS = 70
 // One second of rest between two runs
@@ -563,6 +586,119 @@ const restore = async ($: EngineInterface, options: PluginOptions): Promise<void
   await update($, ready, () => true)
 }
 
+/** Looks at every listed file again: a deleted one is marked, a changed one gets its new size and time. */
+const checkFiles = async ($: EngineInterface): Promise<void> => {
+  const list = await read($, files)
+  if (isDemo || list.length === 0) return
+
+  const stats = await Promise.all(list.map(one => $.fs.stat(one.path).catch(() => undefined)))
+  const changed = new Map<string, FileEntry>()
+  list.forEach((one, index) => {
+    const stat = stats[index]
+    const wasGone = one.isGone === true
+    if (stat === undefined || stat.kind !== 'file') {
+      if (!wasGone) changed.set(one.path, { ...one, isGone: true })
+
+      return
+    }
+
+    if (wasGone || stat.size !== one.size || stat.mtimeMs !== one.mtimeMs) {
+      changed.set(one.path, { ...one, size: stat.size, mtimeMs: stat.mtimeMs, isGone: false })
+    }
+  })
+
+  if (changed.size > 0) await update($, files, now => now.map(one => changed.get(one.path) ?? one))
+}
+
+type RepoPoint = { top: string; head: string }
+
+/** Top folder and commit of the repo the session works in, undefined outside a repo. */
+const readTopHead = async ($: EngineInterface): Promise<RepoPoint | undefined> => {
+  const cwd = await $.session.cwd().catch(() => undefined)
+  if (cwd === undefined) return undefined
+
+  const result = await $.process.run(TOP_HEAD_ARGV, { cwd, timeoutMs: RUN_TIMEOUT_MS }).catch(() => undefined)
+  if (result === undefined || result.exitCode !== 0) return undefined
+
+  const [top = '', head = ''] = result.stdout.split('\n').map(line => line.trim())
+
+  return top.length > 0 && head.length > 0 ? { top, head } : undefined
+}
+
+/**
+ * Puts the files into the list that a shell command changed. A shell call names no file, so git is
+ * asked afterwards: what differs from the last commit, and what a new commit brought along.
+ * Only files written since the call started count. Outside a git repo nothing is found.
+ */
+const noteShellChanges = async (
+  $: EngineInterface,
+  before: RepoPoint | undefined,
+  startedAt: number,
+): Promise<void> => {
+  if (before === undefined) return
+
+  const options = { cwd: before.top, timeoutMs: RUN_TIMEOUT_MS }
+  const status = await $.process.run(CHANGES_ARGV, options).catch(() => undefined)
+  if (status === undefined || status.exitCode !== 0) return
+
+  const now = parseChanges(status.stdout)
+  // A chain that commits leaves a clean tree, its files are only in the new commit
+  const isMoved = now.head.length > 0 && now.head !== before.head
+  const diff = isMoved
+    ? await $.process.run(diffArgv(before.head, now.head), options).catch(() => undefined)
+    : undefined
+  const committed = diff === undefined || diff.exitCode !== 0 ? [] : parseDiff(diff.stdout)
+
+  // A deletion counts only from a commit: the status also lists what was deleted long before this call
+  const candidates = new Map<string, ChangeEntry>()
+  for (const one of committed) candidates.set(one.path, one)
+  for (const one of now.list.filter(each => !each.isGone)) candidates.set(one.path, one)
+  if (candidates.size === 0 || candidates.size > MAX_SHELL_CANDIDATES) return
+
+  // A file system with a coarse clock rounds the time down to the second
+  const since = Math.floor(startedAt / 1000) * 1000
+  const found = await Promise.all(
+    [...candidates.values()].map(async one => {
+      const path = repoPath(before.top, one.path)
+
+      return { one, path, stat: await $.fs.stat(path).catch(() => undefined) }
+    }),
+  )
+  const written = found.filter(each => each.stat?.kind === 'file' && each.stat.mtimeMs >= since)
+  const gone = found.filter(each => each.one.isGone && each.stat?.kind !== 'file')
+  if (written.length + gone.length === 0 || written.length + gone.length > MAX_SHELL_FILES) return
+
+  await update($, files, list => {
+    let next = list
+    const nextNo = (): number => next.reduce((highest, each) => Math.max(highest, each.no), 0) + 1
+
+    for (const { one, path, stat } of written) {
+      const key = pathKey(path)
+      const known = next.find(each => pathKey(each.path) === key)
+      const entry: FileEntry = {
+        path: known?.path ?? path,
+        size: stat?.size ?? 0,
+        mtimeMs: stat?.mtimeMs ?? startedAt,
+        isNew: known?.isNew ?? one.isNew,
+        writes: (known?.writes ?? 0) + 1,
+        no: known?.no ?? nextNo(),
+      }
+      next = [entry, ...next.filter(each => pathKey(each.path) !== key)]
+    }
+
+    for (const { path } of gone) {
+      const key = pathKey(path)
+      next = next.some(each => pathKey(each.path) === key)
+        ? next.map(each => (pathKey(each.path) === key ? { ...each, isGone: true } : each))
+        : [{ path, size: 0, mtimeMs: startedAt, isNew: false, writes: 1, no: nextNo(), isGone: true }, ...next]
+    }
+
+    return next.slice(0, MAX_FILES)
+  })
+  // What the shell wrote is on top, so the list goes back to the first page
+  if (written.length > 0) await update($, filePage, () => 0)
+}
+
 /** The timers of the mod. They survive a /clear, so they start once per module load. */
 const startTimers = ($: EngineInterface): void => {
   startTitleLoop($)
@@ -588,6 +724,13 @@ const startTimers = ($: EngineInterface): void => {
     void (async () => {
       const isFolded = (await read($, collapsed)).session ?? false
       if (!isFolded && (await isPaneUp($))) await readUsage($)
+    })().catch(() => undefined)
+  })
+  // A file deleted or changed outside the write tools shows up after a few seconds
+  $.clock.every(FILES_EVERY_MS, () => {
+    void (async () => {
+      const isFolded = (await read($, collapsed)).files ?? false
+      if (!isFolded && (await isPaneUp($))) await checkFiles($)
     })().catch(() => undefined)
   })
   $.clock.every(REPOS_EVERY_MS, () => {
@@ -757,6 +900,18 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', async ($, e, next) => {
+    if (SHELLS.includes(String(e.tool)) && !isDemo) {
+      const before = await readTopHead($)
+      const startedAt = await $.clock.now()
+      const ran = await next(e)
+      if (ran.deny !== undefined) return ran
+
+      await noteShellChanges($, before, startedAt).catch(() => undefined)
+      await checkFiles($).catch(() => undefined)
+
+      return ran
+    }
+
     const path = WRITERS.includes(String(e.tool)) ? pathOf(e) : undefined
     if (path === undefined || isDemo) return next(e)
 
@@ -827,7 +982,7 @@ export const register: Register = (on, options) => {
     const foldedNow = (id: string): boolean => folded[id] ?? id === 'feed'
     const actions = terminalActions(hostInfo, '')
     const dirty = repoState.list.filter(one => !isClean(one))
-    const total = list.reduce((sum, one) => sum + one.size, 0)
+    const total = list.reduce((sum, one) => sum + (one.isGone === true ? 0 : one.size), 0)
     const note = t.notes[repoState.note] ?? ''
 
     // How many rows the other widgets need, the rest belongs to the files (four rows per file)
@@ -1044,15 +1199,24 @@ export const register: Register = (on, options) => {
             // The number is right-aligned, the lines below are indented by its width
             const number = `${String(file.no).padStart(numberWidth)} `
             const indent = ' '.repeat(number.length + 2)
+            const isGone = file.isGone === true
 
             return (
               <Box flexDirection="column">
                 <Text wrap="truncate-middle" {...ink}>
                   <Text dimColor>{number}</Text>
-                  <Text color={file.isNew ? look.ok : look.warn}>{file.isNew ? '+ ' : '~ '}</Text>
-                  <Link href={fileHref(file.path)}>
-                    <Text bold>{name}</Text>
-                  </Link>
+                  <Text color={isGone ? look.bad : file.isNew ? look.ok : look.warn}>
+                    {isGone ? '- ' : file.isNew ? '+ ' : '~ '}
+                  </Text>
+                  {isGone ? (
+                    <Text bold strikethrough>
+                      {name}
+                    </Text>
+                  ) : (
+                    <Link href={fileHref(file.path)}>
+                      <Text bold>{name}</Text>
+                    </Link>
+                  )}
                 </Text>
                 <Text dimColor wrap="truncate-start" {...ink}>
                   {indent}
@@ -1060,11 +1224,12 @@ export const register: Register = (on, options) => {
                 </Text>
                 <Text dimColor wrap="truncate-end" {...ink}>
                   {indent}
-                  {formatSize(file.size, language)} · {formatStamp(file.mtimeMs, language)}
+                  {isGone ? t.gone : `${formatSize(file.size, language)} · ${formatStamp(file.mtimeMs, language)}`}
                   {file.writes > 1 ? ` · ${file.writes}x` : ''}
                 </Text>
                 <Box flexDirection="row" flexWrap="wrap" columnGap={1} marginLeft={indent.length}>
-                  {hostInfo.terminal !== 'none' &&
+                  {!isGone &&
+                    hostInfo.terminal !== 'none' &&
                     editor.length > 0 &&
                     press(
                       `edit:${file.path}`,
@@ -1075,7 +1240,13 @@ export const register: Register = (on, options) => {
                       },
                       true,
                     )}
-                  {press(`open:${file.path}`, t.open, () => run($, openDefaultArgv(hostInfo, file.path), t.open), true)}
+                  {!isGone &&
+                    press(
+                      `open:${file.path}`,
+                      t.open,
+                      () => run($, openDefaultArgv(hostInfo, file.path), t.open),
+                      true,
+                    )}
                   {press(
                     `copy-path:${file.path}`,
                     t.copyPath,
@@ -1084,14 +1255,15 @@ export const register: Register = (on, options) => {
                     },
                     true,
                   )}
-                  {press(
-                    `copy-content:${file.path}`,
-                    t.copyContent,
-                    async () => {
-                      if (await run($, copyFileArgv(hostInfo, file.path), t.copyContent)) $.ui.toast(t.copied(name))
-                    },
-                    true,
-                  )}
+                  {!isGone &&
+                    press(
+                      `copy-content:${file.path}`,
+                      t.copyContent,
+                      async () => {
+                        if (await run($, copyFileArgv(hostInfo, file.path), t.copyContent)) $.ui.toast(t.copied(name))
+                      },
+                      true,
+                    )}
                 </Box>
               </Box>
             )
