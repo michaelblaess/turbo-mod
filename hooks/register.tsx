@@ -61,7 +61,7 @@ import { findLanguage, LANGUAGES, textsFor } from './texts'
 import { findTheme, lookFor, STANDARD, themeNames } from './theme'
 
 // Must match the version in .claude-plugin/plugin.json
-const VERSION = '0.14.0'
+const VERSION = '0.15.0'
 
 const PANE = 'turbo-mod'
 const PANE_TITLE = 'Turbo-MOD'
@@ -547,6 +547,9 @@ const restore = async ($: EngineInterface, options: PluginOptions): Promise<void
   const os = await $.env.get('OS').catch(() => undefined)
   const wtSession = await $.env.get('WT_SESSION').catch(() => undefined)
   const tmux = await $.env.get('TMUX').catch(() => undefined)
+  const kittyWindowId = await $.env.get('KITTY_WINDOW_ID').catch(() => undefined)
+  const kittyListenOn = await $.env.get('KITTY_LISTEN_ON').catch(() => undefined)
+  const termProgram = await $.env.get('TERM_PROGRAM').catch(() => undefined)
   const uname =
     (os ?? '').toLowerCase() === 'windows_nt'
       ? undefined
@@ -554,7 +557,7 @@ const restore = async ($: EngineInterface, options: PluginOptions): Promise<void
           .run(['uname', '-s'])
           .then(result => result.stdout)
           .catch(() => undefined)
-  const detected = detectHost({ os, wtSession, tmux }, uname)
+  const detected = detectHost({ os, wtSession, tmux, kittyWindowId, kittyListenOn, termProgram }, uname)
   await update($, host, () => detected)
 
   const found = await findEditor($, detected, textOf(options.editor) || 'nvim').catch(() => '')
@@ -1295,13 +1298,13 @@ export const register: Register = (on, options) => {
         {head(
           'terminal',
           t.terminal,
-          hostInfo.terminal === 'wt' ? 'Windows Terminal' : hostInfo.terminal === 'tmux' ? 'tmux' : '',
+          hostInfo.terminal === 'wt' ? 'Windows Terminal' : hostInfo.terminal === 'none' ? '' : hostInfo.terminal,
           hostInfo.terminal === 'wt' ? CHEAT_SHEET : '',
         )}
         {!isFolded('terminal') && actions.length === 0 && (
           <Box marginLeft={2}>
             <Text dimColor wrap="wrap" {...ink}>
-              {t.noTerminal}
+              {t.terminalHints[hostInfo.hint ?? ''] ?? t.noTerminal}
             </Text>
           </Box>
         )}

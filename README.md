@@ -38,7 +38,20 @@ Everything in square brackets is a button, and so are the single arrows and the 
 - **Claude Code** in a terminal. The install command below does not work in the desktop app.
 - **git**, for the Repos widget.
 - For the Terminal widget, the editor button and `[>_]`: **Windows Terminal** on Windows, or
-  **tmux** on Linux and macOS. Without one of them the rest of the pane still works.
+  **tmux** or **kitty** on Linux and macOS. Without one of them the rest of the pane still works.
+
+**kitty:** it only takes commands from outside with remote control switched on. Put these lines
+into `~/.config/kitty/kitty.conf` and restart kitty, a reload is not enough for `listen_on`:
+
+```
+allow_remote_control socket-only
+listen_on unix:@kitty-{kitty_pid}
+enabled_layouts splits,stack
+```
+
+Without the layout `splits` kitty still opens the new window, but places it by its own layout
+and not in the direction of the arrow. Other terminals such as Ghostty or the Xfce terminal
+have no command to split a window from outside. Start Claude in tmux inside them.
 
 **Git Bash on Windows:** start it as a profile inside Windows Terminal. In the standalone Git
 Bash window (mintty) Claude Code does not start interactively and ends with `Input must be

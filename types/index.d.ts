@@ -18,8 +18,10 @@ export type FileEntry = {
 export type HostInfo = {
   /** Operating system, detected via `OS` and `uname -s`. */
   os: 'windows' | 'mac' | 'linux'
-  /** Terminal that can be split from outside: Windows Terminal, tmux or none. */
-  terminal: 'wt' | 'tmux' | 'none'
+  /** Terminal that can be split from outside: Windows Terminal, tmux, kitty or none. */
+  terminal: 'wt' | 'tmux' | 'kitty' | 'none'
+  /** Why a terminal that was recognized still cannot be split, the key of its text in texts.ts. */
+  hint?: 'kitty-remote-off' | 'ghostty'
 }
 
 export type RepoEntry = {

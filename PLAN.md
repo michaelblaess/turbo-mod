@@ -9,10 +9,20 @@ Code, sie ist "early access" und ändert sich zwischen Versionen.
 - **Ein Pane, mehrere Widgets.** Jedes Widget ist ein Abschnitt mit eigener Kopfzeile. Der
   Zustand "eingeklappt" liegt im Sitzungszustand des Hosts und übersteht ein Neuladen des Mods.
 - **Plattform wird erkannt, nicht eingestellt.** `OS=Windows_NT` heißt Windows, sonst
-  entscheidet `uname -s`. `WT_SESSION` heißt Windows Terminal, `TMUX` heißt tmux. Ohne eines
-  der beiden bietet das Terminal-Widget nichts an und sagt das auch.
-- **Bash kann nicht teilen.** Unter Linux teilt tmux das Fenster. Andere Terminals (kitty,
-  WezTerm, GNOME Terminal) haben je eigene Kommandos und sind nicht eingebaut.
+  entscheidet `uname -s`. `WT_SESSION` heißt Windows Terminal, `TMUX` heißt tmux,
+  `KITTY_WINDOW_ID` zusammen mit `KITTY_LISTEN_ON` heißt kitty. Ohne eines davon bietet das
+  Terminal-Widget nichts an und sagt das auch.
+- **Bash kann nicht teilen.** Unter Linux teilen tmux und kitty das Fenster. Andere Terminals
+  (WezTerm, GNOME Terminal) haben je eigene Kommandos und sind nicht eingebaut.
+- **kitty teilt über `kitty @ launch`.** Das braucht `allow_remote_control` und `listen_on` in
+  der `kitty.conf`. Ist kitty erkannt, der Socket aber nicht gesetzt, nennt das Widget genau
+  diesen Grund statt des allgemeinen Hinweises. Links gibt es auch hier nicht: rechts teilen,
+  dann `action move_window left`. Geschlossen wird mit `close-window --match recent:1`.
+  Geprüft am 11.10.2026 mit kitty 0.32.2 gegen ein eigenes Testfenster.
+- **Ghostty lässt sich nicht teilen.** Version 1.3.1 kennt unter Linux von außen nur
+  `+new-window`, auf `main` zusätzlich `+new-tab`. Unter macOS gibt es seit 1.3.0 AppleScript
+  mit `split`, das ist nicht eingebaut, weil kein Mac zum Prüfen da ist. Das Widget erkennt
+  Ghostty an `TERM_PROGRAM` und verweist auf tmux.
 - **Schließen trifft das zuletzt aktive Pane, nicht das aktive.** Beim Druck auf den Knopf
   ist das Pane von Claude das aktive. Unter tmux schließt `kill-pane -t {last}`. Windows
   Terminal hat kein Kommando dafür, dort wandert der Fokus per `move-focus previous`, danach

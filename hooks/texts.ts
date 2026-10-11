@@ -14,6 +14,7 @@ export type Texts = {
   open: string
   terminal: string
   noTerminal: string
+  terminalHints: Record<string, string>
   sheet: string
   confirmClose: string
   confirmRun: string
@@ -96,7 +97,12 @@ const DE: Texts = {
   clearList: 'Liste leeren',
   open: 'öffnen',
   terminal: 'Terminal',
-  noTerminal: 'Kein teilbares Terminal erkannt. Unterstützt sind Windows Terminal und tmux.',
+  noTerminal: 'Kein teilbares Terminal erkannt. Unterstützt sind Windows Terminal, tmux und kitty.',
+  terminalHints: {
+    'kitty-remote-off':
+      'kitty erkannt, die Fernsteuerung ist aber aus. Setze allow_remote_control und listen_on in der kitty.conf und starte kitty neu.',
+    ghostty: 'Ghostty erkannt. Es lässt sich von außen nicht teilen, starte Claude darin in tmux.',
+  },
   sheet: 'Spickzettel',
   confirmClose: 'Wirklich schließen?',
   confirmRun: 'Wirklich?',
@@ -199,7 +205,12 @@ const EN: Texts = {
   clearList: 'clear list',
   open: 'open',
   terminal: 'Terminal',
-  noTerminal: 'No splittable terminal found. Windows Terminal and tmux are supported.',
+  noTerminal: 'No splittable terminal found. Windows Terminal, tmux and kitty are supported.',
+  terminalHints: {
+    'kitty-remote-off':
+      'kitty found, but remote control is off. Set allow_remote_control and listen_on in kitty.conf and restart kitty.',
+    ghostty: 'Ghostty found. It cannot be split from outside, start Claude in tmux inside it.',
+  },
   sheet: 'cheat sheet',
   confirmClose: 'Really close?',
   confirmRun: 'Really?',

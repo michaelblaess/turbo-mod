@@ -13,14 +13,31 @@ export type TerminalAction = {
 export const CHEAT_SHEET = 'https://www.michaelblaess.de/helfer/windows-terminal.html'
 
 /** Detects operating system and terminal from environment variables and the output of `uname -s`. */
-export const detectHost = (env: { os?: string; wtSession?: string; tmux?: string }, uname?: string): HostInfo => {
+export const detectHost = (
+  env: {
+    os?: string
+    wtSession?: string
+    tmux?: string
+    kittyWindowId?: string
+    kittyListenOn?: string
+    termProgram?: string
+  },
+  uname?: string,
+): HostInfo => {
   const isWindows = (env.os ?? '').toLowerCase() === 'windows_nt'
   const os = isWindows ? 'windows' : (uname ?? '').trim().toLowerCase() === 'darwin' ? 'mac' : 'linux'
   const isSet = (value?: string): boolean => value !== undefined && value.trim().length > 0
   // tmux first: if it runs inside Windows Terminal (WSL), tmux splits the window
-  const terminal = isSet(env.tmux) ? 'tmux' : isSet(env.wtSession) ? 'wt' : 'none'
+  if (isSet(env.tmux)) return { os, terminal: 'tmux' }
+  if (isSet(env.wtSession)) return { os, terminal: 'wt' }
+  // kitty only takes commands from outside over its socket, the window alone is not enough
+  if (isSet(env.kittyWindowId)) {
+    return isSet(env.kittyListenOn) ? { os, terminal: 'kitty' } : { os, terminal: 'none', hint: 'kitty-remote-off' }
+  }
+  // Ghostty has no command that splits a window from outside
+  if ((env.termProgram ?? '').trim().toLowerCase() === 'ghostty') return { os, terminal: 'none', hint: 'ghostty' }
 
-  return { os, terminal }
+  return { os, terminal: 'none' }
 }
 
 /** Command that opens a file or folder with the default application. */
@@ -35,6 +52,7 @@ export const openDefaultArgv = (host: HostInfo, path: string): string[] => {
 export const openEditorArgv = (host: HostInfo, editor: string, path: string, cwd: string): string[] | undefined => {
   if (host.terminal === 'wt') return ['wt.exe', '-w', '0', 'split-pane', '-V', '-d', cwd, editor, path]
   if (host.terminal === 'tmux') return ['tmux', 'split-window', '-h', '-c', cwd, editor, path]
+  if (host.terminal === 'kitty') return [...KITTY_LAUNCH, '--location=vsplit', '--cwd', cwd, editor, path]
 
   return undefined
 }
@@ -43,6 +61,13 @@ export const openEditorArgv = (host: HostInfo, editor: string, path: string, cwd
 // then send the key combination for "close pane" to the foreground window.
 const WT_CLOSE_LAST =
   "wt.exe -w 0 move-focus previous; Start-Sleep -Milliseconds 400; (New-Object -ComObject WScript.Shell).SendKeys('^+w')"
+
+// kitty finds its socket through KITTY_LISTEN_ON. The directions only count in the layout "splits".
+const KITTY_LAUNCH = ['kitty', '@', 'launch']
+
+// kitty has no split to the left either: split right, the new window is the active one, move it left.
+// The folder travels as an argument and never as part of the script.
+const KITTY_SPLIT_LEFT = 'kitty @ launch --location=vsplit --cwd "$1" && kitty @ action move_window left'
 
 /** The window commands of the terminal, empty without a splittable terminal. */
 export const terminalActions = (host: HostInfo, cwd: string): TerminalAction[] => {
@@ -67,6 +92,17 @@ export const terminalActions = (host: HostInfo, cwd: string): TerminalAction[] =
       { key: 'new-tab', argv: ['tmux', 'new-window', '-c', cwd] },
       // The active pane is Claude's own, so the last used other one
       { key: 'close-last', argv: ['tmux', 'kill-pane', '-t', '{last}'], needsConfirm: true },
+    ]
+  }
+
+  if (host.terminal === 'kitty') {
+    return [
+      { key: 'split-left', argv: ['sh', '-c', KITTY_SPLIT_LEFT, 'sh', cwd] },
+      { key: 'split-right', argv: [...KITTY_LAUNCH, '--location=vsplit', '--cwd', cwd] },
+      { key: 'split-down', argv: [...KITTY_LAUNCH, '--location=hsplit', '--cwd', cwd] },
+      { key: 'new-tab', argv: [...KITTY_LAUNCH, '--type=tab', '--cwd', cwd] },
+      // recent:0 is the active window and with it Claude's own, recent:1 the one used before
+      { key: 'close-last', argv: ['kitty', '@', 'close-window', '--match', 'recent:1'], needsConfirm: true },
     ]
   }
 

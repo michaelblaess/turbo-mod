@@ -72,6 +72,19 @@ test('detectHost detects Windows Terminal, tmux and macOS', () => {
   expect(detectHost({ wtSession: 'abc', tmux: 'x' }, 'Linux').terminal).toEqual('tmux')
 })
 
+test('detectHost: kitty needs its socket, Ghostty cannot be split, tmux inside wins', () => {
+  const kitty = { kittyWindowId: '1', kittyListenOn: 'unix:@kitty-4711' }
+  expect(detectHost(kitty, 'Linux')).toEqual({ os: 'linux', terminal: 'kitty' })
+  expect(detectHost({ kittyWindowId: '1' }, 'Linux')).toEqual({
+    os: 'linux',
+    terminal: 'none',
+    hint: 'kitty-remote-off',
+  })
+  expect(detectHost({ termProgram: 'ghostty' }, 'Linux')).toEqual({ os: 'linux', terminal: 'none', hint: 'ghostty' })
+  expect(detectHost({ ...kitty, tmux: 'x' }, 'Linux')).toEqual({ os: 'linux', terminal: 'tmux' })
+  expect(detectHost({ termProgram: 'ghostty', tmux: 'x' }, 'Linux')).toEqual({ os: 'linux', terminal: 'tmux' })
+})
+
 test('openDefaultArgv picks the matching program per system', () => {
   expect(openDefaultArgv({ os: 'windows', terminal: 'wt' }, 'C:/tmp/a b.md')).toEqual([
     'explorer.exe',
@@ -102,6 +115,16 @@ test('openEditorArgv opens a split, nothing without a splittable terminal', () =
     'nvim',
     '/a.md',
   ])
+  expect(openEditorArgv({ os: 'linux', terminal: 'kitty' }, 'nvim', '/a.md', '/repo')).toEqual([
+    'kitty',
+    '@',
+    'launch',
+    '--location=vsplit',
+    '--cwd',
+    '/repo',
+    'nvim',
+    '/a.md',
+  ])
   expect(openEditorArgv({ os: 'linux', terminal: 'none' }, 'nvim', '/a.md', '/repo')).toEqual(undefined)
 })
 
@@ -117,7 +140,15 @@ test('terminalActions: four directions and a close with confirmation', () => {
   const tmux = terminalActions({ os: 'linux', terminal: 'tmux' }, '/repo')
   expect(tmux.map(one => one.key)).toEqual(keys)
   expect(tmux[0]?.argv).toEqual(['tmux', 'split-window', '-h', '-b', '-c', '/repo'])
-  expect(terminalActions({ os: 'linux', terminal: 'none' }, '/repo')).toEqual([])
+
+  const kitty = terminalActions({ os: 'linux', terminal: 'kitty' }, '/re po')
+  expect(kitty.map(one => one.key)).toEqual(keys)
+  // Left: the folder is an argument of the script, a blank in it splits nothing
+  expect(kitty[0]?.argv.slice(-2)).toEqual(['sh', '/re po'])
+  expect(kitty[1]?.argv).toEqual(['kitty', '@', 'launch', '--location=vsplit', '--cwd', '/re po'])
+  expect(kitty[4]?.argv).toEqual(['kitty', '@', 'close-window', '--match', 'recent:1'])
+  expect(kitty.filter(one => one.needsConfirm === true).map(one => one.key)).toEqual(['close-last'])
+  expect(terminalActions({ os: 'linux', terminal: 'none', hint: 'ghostty' }, '/repo')).toEqual([])
 })
 
 test('joinPath uses the separator of the folder', () => {

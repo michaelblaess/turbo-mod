@@ -40,7 +40,22 @@ Alles in eckigen Klammern ist ein Knopf, ebenso die einzelnen Pfeile und das Kre
 - **Claude Code** in einem Terminal. Der Befehl zum Installieren geht nicht in der Desktop-App.
 - **git**, für das Widget Repos.
 - Für das Widget Terminal, den Editor-Knopf und `[>_]`: **Windows Terminal** unter Windows oder
-  **tmux** unter Linux und macOS. Ohne eines der beiden funktioniert der Rest des Panes trotzdem.
+  **tmux** oder **kitty** unter Linux und macOS. Ohne eines davon funktioniert der Rest des Panes
+  trotzdem.
+
+**kitty:** Es nimmt Kommandos von außen nur mit eingeschalteter Fernsteuerung an. Trage diese
+Zeilen in die `~/.config/kitty/kitty.conf` ein und starte kitty neu, ein Neuladen reicht für
+`listen_on` nicht:
+
+```
+allow_remote_control socket-only
+listen_on unix:@kitty-{kitty_pid}
+enabled_layouts splits,stack
+```
+
+Ohne das Layout `splits` öffnet kitty das neue Fenster trotzdem, ordnet es aber nach seinem
+eigenen Layout an und nicht in Pfeilrichtung. Andere Terminals wie Ghostty oder das
+Xfce-Terminal haben kein Kommando, das ein Fenster von außen teilt. Starte Claude darin in tmux.
 
 **Git Bash unter Windows:** Starte sie als Profil in Windows Terminal. Im eigenständigen
 Git-Bash-Fenster (mintty) startet Claude Code nicht interaktiv und endet mit `Input must be
