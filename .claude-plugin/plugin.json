@@ -1,10 +1,12 @@
 {
   "name": "turbo-mod",
+  "displayName": "Turbo-MOD",
   "version": "0.16.0",
   "description": "A side pane for Claude Code with collapsible widgets: files Claude wrote, terminal splits, the state of your git repos and a TODO list, in retro colors.",
   "author": {
     "name": "Michael Blaess"
   },
+  "keywords": ["mod", "side-pane", "git", "terminal", "tmux", "windows-terminal", "kitty", "todo", "usage", "themes", "retro"],
   "types": "./types/index.d.ts",
   "userConfig": {
     "theme": {
