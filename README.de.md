@@ -306,6 +306,49 @@ claude plugin uninstall turbo-mod
 
 Nach einer Aktualisierung in einer laufenden Sitzung `/reload-plugins` tippen.
 
+## Was der Mod ausführt, schreibt und sendet
+
+Turbo-MOD zeichnet ein Pane und startet Programme auf Deinem Rechner. Eigene Netzwerkaufrufe macht
+er nicht, und an einen Server von mir geht nichts.
+
+**Programme, die er startet**
+
+- `git`, nur lesend, für die Repo-Liste und die Dateiliste: `status`, `rev-parse` und `diff`. Das
+  läuft im Takt und nach jedem Shell-Kommando der Sitzung.
+- `git fetch` und `git pull --ff-only`, nur wenn Du `[alle fetchen]` oder `[pull]` drückst. Diese
+  beiden sprechen mit Deinem Git-Remote.
+- Dein Terminal, für die Split-Knöpfe: `wt.exe` im Windows Terminal, `tmux` oder `kitty @`. Unter
+  Windows startet `[Letztes Pane schließen]` ein kurzes PowerShell-Skript.
+- Den eingestellten Editor, wenn Du den Editor-Knopf einer Datei drückst.
+- `explorer.exe`, `open` oder `xdg-open`, wenn Du eine Datei mit ihrer Standardanwendung öffnest.
+- Die Zwischenablage: PowerShell `Set-Clipboard` unter Windows, `pbcopy` unter macOS, `wl-copy`
+  oder `xclip` unter Linux.
+- Einen Ordnerdialog, wenn Du einen Repo-Ordner auswählst: PowerShell unter Windows, `osascript`
+  unter macOS, `zenity` unter Linux.
+- Das Kommando aus `/turbo feed`, genau so, wie Du es eingegeben hast. Der Mod liest seine Ausgabe
+  als JSON. Ohne diese Einstellung läuft nichts. Was das Kommando tut, liegt bei Dir.
+
+**Was er liest**
+
+- Die Dateipfade aus den Werkzeugaufrufen der Sitzung, für die Liste der Dateien, die Claude
+  geschrieben hat.
+- Kontextgröße und Limits, wie Claude Code sie meldet.
+- Einige Umgebungsvariablen, um Terminal und Benutzerordner zu finden, etwa `WT_SESSION`, `TMUX`,
+  `KITTY_WINDOW_ID` und `HOME`.
+
+**Was er schreibt**
+
+- Eine Datei: die TODO-Liste, in der Vorgabe `~/.claude/turbo-mod-todo.md`.
+- Seine Einstellungen, im Speicher, den Claude Code jedem Mod gibt.
+
+**Slash-Befehle, die er ausführt**
+
+- `/compact` und `/clear`, jeweils erst nach dem zweiten Druck auf den Knopf innerhalb von fünf
+  Sekunden.
+
+Die Links in der Kopfzeile zeigen auf dieses Repo und auf michaelblaess.de. Dein Terminal öffnet
+sie beim Klick, der Mod lädt sie nicht.
+
 ## Grenzen
 
 - Dateien aus einem Shell-Kommando (Umleitung, Kopie, ein Skript) findet der Mod über git. Er fragt
@@ -324,7 +367,7 @@ Nach einer Aktualisierung in einer laufenden Sitzung `/reload-plugins` tippen.
   `[Letztes Pane schließen]` setzt den Fokus auf das zuvor aktive Pane und schickt dann
   Strg+Umschalt+W an das Fenster im Vordergrund. Gibt es kein anderes Pane, schließt das den
   Tab, in dem Claude läuft.
-- Andere Terminals (kitty, WezTerm, GNOME Terminal) werden beim Teilen nicht unterstützt.
+- Andere Terminals (WezTerm, GNOME Terminal, Ghostty) werden beim Teilen nicht unterstützt.
 - Die Ordnerauswahl braucht unter Linux `zenity`, die Knöpfe für die Zwischenablage `wl-copy`
   oder `xclip`.
 - `[Inhalt]` ist für Textdateien gedacht.

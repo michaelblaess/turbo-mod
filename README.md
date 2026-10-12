@@ -295,6 +295,47 @@ claude plugin uninstall turbo-mod
 
 After an update, type `/reload-plugins` in a running session.
 
+## What the mod runs, writes and sends
+
+Turbo-MOD draws a pane and starts programs on your machine. It makes no network request of its
+own and sends nothing to a server of mine.
+
+**Programs it starts**
+
+- `git`, read-only, for the repo list and the file list: `status`, `rev-parse` and `diff`. This
+  runs on a timer and after every shell command of the session.
+- `git fetch` and `git pull --ff-only`, only when you press `[fetch all]` or `[pull]`. These two
+  talk to your git remote.
+- Your terminal, for the split buttons: `wt.exe` on Windows Terminal, `tmux`, or `kitty @`. On
+  Windows, `[Close last pane]` runs a short PowerShell script.
+- The editor you set, when you press the editor button of a file.
+- `explorer.exe`, `open` or `xdg-open`, when you open a file with its default application.
+- The clipboard: PowerShell `Set-Clipboard` on Windows, `pbcopy` on macOS, `wl-copy` or `xclip`
+  on Linux.
+- A folder dialog when you pick a repo folder: PowerShell on Windows, `osascript` on macOS,
+  `zenity` on Linux.
+- The command you set with `/turbo feed`, exactly as you typed it. The mod reads its output as
+  JSON. Without that setting nothing runs. What this command does is up to you.
+
+**What it reads**
+
+- The file paths from the tool calls of the session, to list the files Claude wrote.
+- Context size and plan limits as Claude Code reports them.
+- A few environment variables to find your terminal and home folder, such as `WT_SESSION`,
+  `TMUX`, `KITTY_WINDOW_ID` and `HOME`.
+
+**What it writes**
+
+- One file: the TODO list, by default `~/.claude/turbo-mod-todo.md`.
+- Its settings, in the store Claude Code gives every mod.
+
+**Slash commands it runs**
+
+- `/compact` and `/clear`, each only after you press its button twice within five seconds.
+
+The links in the header point to this repo and to michaelblaess.de. Your terminal opens them
+when you click, the mod does not load them.
+
 ## Limits
 
 - Files from a shell command (a redirect, a copy, a script) are found through git. After every
@@ -311,7 +352,7 @@ After an update, type `/reload-plugins` in a running session.
   the left therefore splits to the right and swaps the two panes. `[Close last pane]` moves the
   focus to the pane that was active before and then sends Ctrl+Shift+W to the window in the
   foreground. If there is no other pane, that closes the tab Claude runs in.
-- Other terminals (kitty, WezTerm, GNOME Terminal) are not supported for splitting.
+- Other terminals (WezTerm, GNOME Terminal, Ghostty) are not supported for splitting.
 - The folder dialog needs `zenity` on Linux, the clipboard buttons `wl-copy` or `xclip`.
 - `[content]` is meant for text files.
 - Windows Terminal opens links only with Ctrl held down. The buttons react to a plain click.
