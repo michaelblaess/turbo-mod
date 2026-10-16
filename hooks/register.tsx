@@ -59,7 +59,21 @@ import {
 import type { Lang } from './texts'
 import { findLanguage, LANGUAGES, textsFor } from './texts'
 import { findTheme, lookFor, STANDARD, themeNames } from './theme'
-import { addTodo, changeTodo, clearDoneTodos, fitTodoText, parseTodos, sortTodos, todoPathIn } from './todo'
+import {
+  addTodo,
+  archivePathOf,
+  archiveTodos,
+  changeTodo,
+  clearDoneTodos,
+  dayStamp,
+  exportPathOf,
+  fitTodoText,
+  parseTodos,
+  sortTodos,
+  todoPathIn,
+  todosAsJson,
+  todosAsText,
+} from './todo'
 
 // Must match the version in .claude-plugin/plugin.json
 const VERSION = '0.16.0'
@@ -432,8 +446,9 @@ const saveTodo = async ($: EngineInterface, item: TodoItem | undefined, value: s
   await update($, todo, now => ({ ...now, editing: -2 }))
   if (value.trim().length === 0) return
 
+  const day = dayStamp(await $.clock.now())
   await writeTodos($, content =>
-    item === undefined ? addTodo(content, value) : changeTodo(content, item, now => ({ ...now, text: value })),
+    item === undefined ? addTodo(content, value, day) : changeTodo(content, item, now => ({ ...now, text: value })),
   )
 }
 
@@ -471,6 +486,85 @@ const run = async ($: EngineInterface, argv: readonly string[], what: string): P
   }
 
   return true
+}
+
+/** The list as it is in the file right now, `undefined` if there is none to work with. */
+const todosNow = async ($: EngineInterface): Promise<{ path: string; items: TodoItem[] } | undefined> => {
+  if (isDemo) return undefined
+
+  const state = (await read($, todo)) ?? NO_TODO
+  if (state.path.length === 0 || state.note === 'in-repo') return undefined
+
+  const content = await loadTodoFile($, state.path)
+  if (content === undefined) {
+    await update($, todo, now => ({ ...now, note: 'unreadable' }))
+
+    return undefined
+  }
+
+  return { path: state.path, items: parseTodos(content) }
+}
+
+/**
+ * Moves the ticked off tasks into the archive next to the list. The list loses them only once the
+ * archive is written, so a failed write loses nothing.
+ */
+const archiveDoneTodos = async ($: EngineInterface): Promise<boolean> => {
+  const now = await todosNow($)
+  const done = now?.items.filter(one => one.isDone) ?? []
+  if (now === undefined || done.length === 0) return false
+
+  const archivePath = archivePathOf(now.path)
+  const archive = await loadTodoFile($, archivePath)
+  const day = dayStamp(await $.clock.now())
+  const isArchived =
+    archive !== undefined &&
+    (await $.fs
+      .write(archivePath, archiveTodos(archive, done, day))
+      .then(() => true)
+      .catch(() => false))
+  if (!isArchived) {
+    $.ui.toast(textsFor(await languageNow($)).todoArchiveFailed(archivePath))
+
+    return false
+  }
+
+  return writeTodos($, content =>
+    clearDoneTodos(
+      content,
+      done.map(one => one.text),
+    ),
+  )
+}
+
+/** Puts the open tasks on the clipboard and returns the message for it. */
+const copyTodos = async ($: EngineInterface): Promise<string> => {
+  const t = textsFor(await languageNow($))
+  const now = await todosNow($)
+  if (now === undefined) return isDemo ? t.demoOn : (t.todoNotes.unreadable ?? '')
+
+  const open = now.items.filter(one => !one.isDone).length
+  if (open === 0) return t.todoNothingOpen
+
+  const hostInfo = await read($, host)
+
+  return (await run($, copyTextArgv(hostInfo, todosAsText(now.items)), t.todoCopy)) ? t.todoCopied(open) : ''
+}
+
+/** Writes the whole list as JSON next to its file and returns the message for it. */
+const exportTodos = async ($: EngineInterface): Promise<string> => {
+  const t = textsFor(await languageNow($))
+  const now = await todosNow($)
+  if (now === undefined) return isDemo ? t.demoOn : (t.todoNotes.unreadable ?? '')
+
+  const path = exportPathOf(now.path)
+  const json = todosAsJson(now.items, now.path, new Date(await $.clock.now()).toISOString())
+  const isWritten = await $.fs
+    .write(path, json)
+    .then(() => true)
+    .catch(() => false)
+
+  return isWritten ? t.todoExported(path, now.items.length) : t.todoExportFailed(path)
 }
 
 /**
@@ -1034,6 +1128,9 @@ export const register: Register = (on, options) => {
 
       if (isDemo) return { text: t.demoOn }
       if (state.note === 'in-repo') return { text: t.todoInRepo(state.path) }
+      // Only the bare word counts, a task that starts with it is still a task
+      if (/^(kopieren|copy)$/i.test(argument)) return { text: await copyTodos($) }
+      if (/^export$/i.test(argument)) return { text: await exportTodos($) }
 
       await update($, collapsed, now => ({ ...now, todo: false }))
       if (argument.length === 0) {
@@ -1043,8 +1140,10 @@ export const register: Register = (on, options) => {
         return { text: t.todoCount(list.filter(one => !one.isDone).length) }
       }
 
+      const day = dayStamp(await $.clock.now())
+
       return {
-        text: (await writeTodos($, content => addTodo(content, argument))) ? t.todoAdded(argument) : t.todoFailed,
+        text: (await writeTodos($, content => addTodo(content, argument, day))) ? t.todoAdded(argument) : t.todoFailed,
       }
     }
 
@@ -1762,7 +1861,18 @@ export const register: Register = (on, options) => {
                     'todo:tidy',
                     armedKey === 'todo:tidy' ? t.confirmRun : t.todoTidy(doneTodos),
                     async () => {
-                      if (await isSecondPress($, 'todo:tidy')) await writeTodos($, clearDoneTodos)
+                      if (await isSecondPress($, 'todo:tidy')) await archiveDoneTodos($)
+                    },
+                    true,
+                  )}
+                {openTodos > 0 &&
+                  todoState.editing === -2 &&
+                  press(
+                    'todo:copy',
+                    t.todoCopy,
+                    async () => {
+                      const message = await copyTodos($)
+                      if (message.length > 0) $.ui.toast(message)
                     },
                     true,
                   )}

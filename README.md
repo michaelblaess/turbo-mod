@@ -213,8 +213,14 @@ A plain list for ideas and for things you do not want to forget.
 - `[ ]` ticks a task off, done ones are struck through at the bottom.
 - A double click on the text brings it back into the field for editing.
 - `✕` removes the task after asking once.
-- `[remove N done]` clears everything that is ticked off, after asking once as well.
+- `[archive N done]` moves everything that is ticked off into an archive next to the list,
+  under a heading with the day, after asking once. If the archive cannot be written, everything
+  stays in the list.
+- `[copy]` puts the open tasks on the clipboard as a plain list.
 - `/turbo todo <text>` adds a task without touching the pane.
+- `/turbo todo copy` does the same as the button, `/turbo todo export` writes the whole list as
+  JSON next to the file. Only the bare word counts as a command, `/turbo todo export the logo
+  for print` is a task.
 
 While the list is empty the section stays collapsed. Its head shows the number of open tasks
 even then.
@@ -227,13 +233,18 @@ The tasks are kept in a Markdown file on your machine, by default
 `~/.claude/turbo-mod-todo.md`. You can edit it in any editor:
 
 ```markdown
-- [ ] Write the release notes
+- [ ] Write the release notes <!-- 2026-10-16 -->
 - [ ] Idea: a dark variant of the logo
 - [x] Tidy up the old branches
 ```
 
+A new task gets the day you noted it as a comment at the end of its line. Markdown does not
+show it, renaming and ticking keep it. Lines without a day are just as valid.
+
 Lines that are no task stay as they are. `/turbo todo file <path>` moves the list somewhere
-else. A folder inside a git repo is refused, so the tasks never end up in a history.
+else. A folder inside a git repo is refused, so the tasks never end up in a history. The archive
+and the export lie in the same folder as the list (`turbo-mod-todo-archive.md`,
+`turbo-mod-todo.json`), so the same protection holds for them.
 
 ## Commands
 
@@ -247,6 +258,8 @@ else. A folder inside a git repo is refused, so the tasks never end up in a hist
 | `/turbo feed <command>` | switch on the widget New tickets, `off` switches it off |
 | `/turbo todo <text>` | add a task to the TODO list, without text: count the open ones |
 | `/turbo todo file <path>` | set the file of the TODO list, without path: show it |
+| `/turbo todo copy` | the open tasks to the clipboard |
+| `/turbo todo export` | write the whole list as JSON next to the file |
 | `/turbo lang <de\|en>` | language of the pane and of the answers |
 | `/turbo clear` | reset the list of files, numbering starts again at 1 |
 | `/turbo effect` | switch the title effect off or on |
@@ -326,7 +339,9 @@ own and sends nothing to a server of mine.
 
 **What it writes**
 
-- One file: the TODO list, by default `~/.claude/turbo-mod-todo.md`.
+- The TODO list, by default `~/.claude/turbo-mod-todo.md`, and next to it two files that are
+  only made on a button or a command: the archive of the done tasks
+  (`turbo-mod-todo-archive.md`) and the export (`turbo-mod-todo.json`).
 - Its settings, in the store Claude Code gives every mod.
 
 **Slash commands it runs**

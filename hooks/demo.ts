@@ -75,10 +75,10 @@ export const demoState = (now: number): DemoState => {
       note: '',
     },
     todos: [
-      { line: 0, text: 'Write the release notes', isDone: false },
-      { line: 1, text: 'Idea: a dark variant of the logo', isDone: false },
-      { line: 2, text: 'Tidy up the old branches', isDone: false },
-      { line: 3, text: 'Update the README screenshots', isDone: true },
+      { line: 0, text: 'Write the release notes', isDone: false, addedOn: '' },
+      { line: 1, text: 'Idea: a dark variant of the logo', isDone: false, addedOn: '' },
+      { line: 2, text: 'Tidy up the old branches', isDone: false, addedOn: '' },
+      { line: 3, text: 'Update the README screenshots', isDone: true, addedOn: '' },
     ],
     usage: {
       measuredAt: now,

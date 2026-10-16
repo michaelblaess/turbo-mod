@@ -222,8 +222,14 @@ Eine einfache Liste für Ideen und für Dinge, die Du nicht vergessen willst.
 - `[ ]` hakt eine Aufgabe ab, erledigte stehen durchgestrichen unten.
 - Ein Doppelklick auf den Text holt ihn zum Bearbeiten ins Textfeld zurück.
 - `✕` löscht die Aufgabe nach einer Rückfrage.
-- `[N erledigte entfernen]` räumt alles Abgehakte weg, ebenfalls nach einer Rückfrage.
+- `[N erledigte archivieren]` räumt alles Abgehakte nach einer Rückfrage in ein Archiv neben
+  der Liste, unter einer Überschrift mit dem Tag. Lässt sich das Archiv nicht schreiben, bleibt
+  alles in der Liste.
+- `[kopieren]` legt die offenen Aufgaben als einfache Liste in die Zwischenablage.
 - `/turbo todo <text>` legt eine Aufgabe an, ohne dass Du das Pane anfasst.
+- `/turbo todo kopieren` macht dasselbe wie der Knopf, `/turbo todo export` schreibt die ganze
+  Liste als JSON neben die Datei. Nur das Wort allein gilt als Befehl, `/turbo todo export für
+  den Druck` ist eine Aufgabe.
 
 Solange die Liste leer ist, bleibt der Abschnitt eingeklappt. Der Kopf zeigt die Zahl der
 offenen Aufgaben auch dann.
@@ -236,14 +242,19 @@ Die Aufgaben liegen in einer Markdown-Datei auf Deinem Rechner, als Vorgabe in
 `~/.claude/turbo-mod-todo.md`. Du kannst sie in jedem Editor bearbeiten:
 
 ```markdown
-- [ ] Release-Notizen schreiben
+- [ ] Release-Notizen schreiben <!-- 2026-10-16 -->
 - [ ] Idee: dunkle Variante des Logos
 - [x] Alte Branches aufräumen
 ```
 
+Eine neue Aufgabe bekommt den Tag, an dem Du sie notiert hast, als Kommentar am Zeilenende.
+Markdown zeigt ihn nicht an, Umbenennen und Abhaken lassen ihn stehen. Zeilen ohne Tag sind
+genauso gültig.
+
 Zeilen, die keine Aufgabe sind, lässt der Mod stehen. `/turbo todo datei <pfad>` legt die Liste
 an einen anderen Ort. Ein Ordner in einem Git-Repo wird abgelehnt, damit die Aufgaben nie in
-einer Historie landen.
+einer Historie landen. Archiv und Export liegen im selben Ordner wie die Liste
+(`turbo-mod-todo-archive.md`, `turbo-mod-todo.json`), für sie gilt also derselbe Schutz.
 
 ## Befehle
 
@@ -257,6 +268,8 @@ einer Historie landen.
 | `/turbo feed <befehl>` | Widget Neue Tickets einschalten, `aus` schaltet es ab |
 | `/turbo todo <text>` | Aufgabe in die TODO-Liste legen, ohne Text: offene zählen |
 | `/turbo todo datei <pfad>` | Datei der TODO-Liste setzen, ohne Pfad: anzeigen |
+| `/turbo todo kopieren` | offene Aufgaben in die Zwischenablage |
+| `/turbo todo export` | ganze Liste als JSON neben die Datei schreiben |
 | `/turbo sprache <de\|en>` | Sprache des Panes und der Antworten |
 | `/turbo leeren` | Liste der Dateien zurücksetzen, die Nummern beginnen wieder bei 1 |
 | `/turbo effekt` | Titeleffekt aus- oder einschalten |
@@ -338,7 +351,9 @@ er nicht, und an einen Server von mir geht nichts.
 
 **Was er schreibt**
 
-- Eine Datei: die TODO-Liste, in der Vorgabe `~/.claude/turbo-mod-todo.md`.
+- Die TODO-Liste, in der Vorgabe `~/.claude/turbo-mod-todo.md`, und daneben zwei Dateien, die
+  nur auf Knopfdruck oder Befehl entstehen: das Archiv der erledigten Aufgaben
+  (`turbo-mod-todo-archive.md`) und den Export (`turbo-mod-todo.json`).
 - Seine Einstellungen, im Speicher, den Claude Code jedem Mod gibt.
 
 **Slash-Befehle, die er ausführt**

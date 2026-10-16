@@ -85,6 +85,8 @@ export type TodoItem = {
   line: number
   text: string
   isDone: boolean
+  /** Day the task was noted as YYYY-MM-DD, empty for a task without one. */
+  addedOn: string
 }
 
 export type TodoState = {

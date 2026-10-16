@@ -81,6 +81,17 @@ Code, sie ist "early access" und ändert sich zwischen Versionen.
   `Input` auf jeder Fläche außer der mobilen. Dort fehlt das Plus, `/turbo todo <text>` legt
   die Aufgabe an. Solange die Liste leer ist, bleibt der Abschnitt eingeklappt, damit die
   Dateiliste ihren Platz behält.
+- **Datum, Archiv, Export (Zweig `feature/todo-export`, 16.10.2026).** Eine neue Aufgabe trägt
+  den Tag als `<!-- JJJJ-MM-TT -->` am Zeilenende, so bleibt die Datei von Hand lesbar und alte
+  Zeilen ohne Tag gelten weiter. Aufräumen schreibt erst das Archiv neben der Liste und nimmt
+  danach nur die archivierten Zeilen aus der Liste, ein gescheitertes Schreiben verliert also
+  nichts. Archiv und JSON-Export liegen im Ordner der Liste und erben damit deren Prüfung gegen
+  Git-Repos. `kopieren` und `export` gelten nur als ganzes Argument, damit eine Aufgabe, die mit
+  dem Wort beginnt, eine Aufgabe bleibt. Die Zwischenablage läuft über denselben Befehl wie
+  "Pfad kopieren" bei den Dateien (`copyTextArgv`).
+- **Ideen für spätere Zweige:** das Projekt automatisch an eine Aufgabe hängen (`#turbo-mod`,
+  aus dem Arbeitsordner) mit Filter, eine Aufgabe als Text in die Eingabezeile legen (erst
+  prüfen, ob die Schnittstelle das kann), Suche ab mehr als 12 Einträgen.
 
 ## Offen
 

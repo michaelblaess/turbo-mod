@@ -35,7 +35,22 @@ import {
 } from './platform'
 import { findLanguage, textsFor } from './texts'
 import { findTheme, lookFor, themeNames } from './theme'
-import { addTodo, changeTodo, clearDoneTodos, fitTodoText, formatTodo, parseTodos, sortTodos, todoPathIn } from './todo'
+import {
+  addTodo,
+  archivePathOf,
+  archiveTodos,
+  changeTodo,
+  clearDoneTodos,
+  dayStamp,
+  exportPathOf,
+  fitTodoText,
+  formatTodo,
+  parseTodos,
+  sortTodos,
+  todoPathIn,
+  todosAsJson,
+  todosAsText,
+} from './todo'
 
 test('formatSize writes German with a comma', () => {
   expect(formatSize(512)).toEqual('512 B')
@@ -1007,9 +1022,9 @@ test('a shell call that touches dozens of files is a pull or an install and list
 test('the TODO file is read tolerantly and every foreign line stays as it is', () => {
   const content = ['# Ideas', '', '- [ ] Write the notes', '* [x] Old one', 'just a remark', '- [ ] Later'].join('\n')
   expect(parseTodos(content)).toEqual([
-    { line: 2, text: 'Write the notes', isDone: false },
-    { line: 3, text: 'Old one', isDone: true },
-    { line: 5, text: 'Later', isDone: false },
+    { line: 2, text: 'Write the notes', isDone: false, addedOn: '' },
+    { line: 3, text: 'Old one', isDone: true, addedOn: '' },
+    { line: 5, text: 'Later', isDone: false, addedOn: '' },
   ])
   expect(parseTodos('- [ ]   \n- no box\n')).toEqual([])
 
@@ -1018,6 +1033,64 @@ test('the TODO file is read tolerantly and every foreign line stays as it is', (
   expect(added.startsWith('# Ideas\n\n- [ ] Write the notes\n* [x] Old one\njust a remark\n')).toEqual(true)
   expect(addTodo(content, '   ')).toEqual(content)
   expect(addTodo('', 'First')).toEqual('- [ ] First\n')
+})
+
+test('the day a task was noted rides along as a comment and survives ticking and renaming', () => {
+  const content = addTodo('', 'Idea: a dark logo', '2026-10-12')
+  expect(content).toEqual('- [ ] Idea: a dark logo <!-- 2026-10-12 -->\n')
+
+  const [item] = parseTodos(content)
+  if (item === undefined) throw new Error('a task expected')
+  expect(item).toEqual({ line: 0, text: 'Idea: a dark logo', isDone: false, addedOn: '2026-10-12' })
+
+  expect(changeTodo(content, item, now => ({ ...now, isDone: true }))).toEqual(
+    '- [x] Idea: a dark logo <!-- 2026-10-12 -->\n',
+  )
+  expect(changeTodo(content, item, now => ({ ...now, text: 'Idea: a light logo' }))).toEqual(
+    '- [ ] Idea: a light logo <!-- 2026-10-12 -->\n',
+  )
+  // A comment in the middle of the text is part of the text, only one at the end is the day
+  expect(parseTodos('- [ ] a <!-- 2026-10-12 --> b')[0]?.text).toEqual('a <!-- 2026-10-12 --> b')
+  expect(parseTodos('- [ ] a <!-- soon -->')[0]?.addedOn).toEqual('')
+  expect(dayStamp(new Date(2026, 0, 5, 23, 59).getTime())).toEqual('2026-01-05')
+})
+
+test('tidying moves the done tasks into an archive under a heading of the day', () => {
+  const done = parseTodos('- [x] One <!-- 2026-10-01 -->\n- [ ] Open\n- [x] Two\n').filter(one => one.isDone)
+  const first = archiveTodos('', done, '2026-10-16')
+  expect(first).toEqual('## 2026-10-16\n\n- [x] One <!-- 2026-10-01 -->\n- [x] Two\n')
+
+  // A second tidying on the same day joins the heading, the next day starts a new one
+  const later = parseTodos('- [x] Three\n')
+  expect(archiveTodos(first, later, '2026-10-16')).toEqual(`${first}- [x] Three\n`)
+  expect(archiveTodos(first, later, '2026-10-17')).toEqual(`${first}\n## 2026-10-17\n\n- [x] Three\n`)
+  expect(archiveTodos('# By hand', later, '2026-10-17')).toEqual('# By hand\n\n## 2026-10-17\n\n- [x] Three\n')
+  expect(archiveTodos(first, [], '2026-10-17')).toEqual(first)
+
+  // Only the archived ones leave the list, one ticked off in the meantime stays
+  expect(clearDoneTodos('- [x] One\n- [x] Late\n- [ ] Open\n', ['One'])).toEqual('- [x] Late\n- [ ] Open\n')
+
+  expect(archivePathOf('/home/sam/.claude/turbo-mod-todo.md')).toEqual('/home/sam/.claude/turbo-mod-todo-archive.md')
+  expect(exportPathOf('C:\\Users\\Sam\\todo.MD')).toEqual('C:\\Users\\Sam\\todo.json')
+  expect(exportPathOf('/home/sam/todo.txt')).toEqual('/home/sam/todo.txt.json')
+})
+
+test('the list goes out as plain text with the open tasks and as JSON with all of them', () => {
+  const items = parseTodos('# Ideas\n- [ ] One <!-- 2026-10-12 -->\n- [x] Done\n- [ ] Two\n')
+  expect(todosAsText(items)).toEqual('- One\n- Two')
+  expect(todosAsText([])).toEqual('')
+
+  const json = todosAsJson(items, '/home/sam/todo.md', '2026-10-16T19:00:00.000Z')
+  expect(json.endsWith('\n')).toEqual(true)
+  expect(JSON.parse(json)).toEqual({
+    exportedAt: '2026-10-16T19:00:00.000Z',
+    file: '/home/sam/todo.md',
+    tasks: [
+      { text: 'One', isDone: false, addedOn: '2026-10-12' },
+      { text: 'Done', isDone: true, addedOn: null },
+      { text: 'Two', isDone: false, addedOn: null },
+    ],
+  })
 })
 
 test('a task is ticked, renamed and removed by its line', () => {
@@ -1069,30 +1142,54 @@ type TestOn = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) 
 
 /** Answers the file, the environment and git from memory. `tracked` names folders that count as a git repo. */
 const todoHost = (on: TestOn, tracked: string[] = []) => {
-  const disk: { content: string | undefined; path: string; gitDirs: string[]; now: number } = {
+  const disk: {
+    content: string | undefined
+    path: string
+    gitDirs: string[]
+    now: number
+    /** The archive and the export, by path. */
+    files: Record<string, string>
+    /** Paths whose writing fails. */
+    refused: string[]
+    /** Every program the mod started apart from git. */
+    runs: string[][]
+  } = {
     content: undefined,
     path: '',
     gitDirs: [],
     now: new Date(2026, 9, 12, 9, 0, 0).getTime(),
+    files: {},
+    refused: [],
+    runs: [],
   }
-  on('store.set', () => ({ value: undefined }))
-  on('clock.now', () => ({ value: disk.now }))
-  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
-  on('fs.exists', () => ({ value: disk.content !== undefined }))
-  on('fs.read', () => ({ value: disk.content ?? '' }))
-  on('fs.write', (_$, e) => {
-    disk.content = e.text
-    // The test host turns the path into one of its own system
-    disk.path = e.path
+  // The test host turns a path into one of its own system
+  const plain = (path: string): string =>
+    path
       .split('\\')
       .join('/')
       .replace(/^[A-Za-z]:/, '')
+  const isBeside = (path: string): boolean => /(-archive\.md|\.json)$/.test(path)
+  on('store.set', () => ({ value: undefined }))
+  on('clock.now', () => ({ value: disk.now }))
+  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
+  on('fs.exists', (_$, e) => ({
+    value: isBeside(e.path) ? disk.files[plain(e.path)] !== undefined : disk.content !== undefined,
+  }))
+  on('fs.read', (_$, e) => ({ value: isBeside(e.path) ? (disk.files[plain(e.path)] ?? '') : (disk.content ?? '') }))
+  on('fs.write', (_$, e) => {
+    if (disk.refused.includes(plain(e.path))) return { deny: 'disk full' }
+    if (isBeside(e.path)) disk.files[plain(e.path)] = e.text
+    else {
+      disk.content = e.text
+      disk.path = plain(e.path)
+    }
 
     return { value: undefined }
   })
   on('process.run', (_$, e) => {
     const isGit = e.argv[0] === 'git' && e.argv[3] === 'rev-parse'
     if (isGit) disk.gitDirs.push(String(e.argv[2]))
+    else disk.runs.push(e.argv.map(String))
 
     return {
       value: {
@@ -1122,14 +1219,15 @@ test('the widget TODO adds a task from the field and from /turbo todo, ticks it 
   await ui.press({ key: 'todo:add' })
   expect((await ui.findAll({ type: 'Input' })).length).toEqual(1)
   await ui.input({ key: 'todo:input', text: 'Call the vet' })
-  expect(disk.content).toEqual('- [ ] Call the vet\n')
+  // The day comes from the clock of the host, 12 October in this test
+  expect(disk.content).toEqual('- [ ] Call the vet <!-- 2026-10-12 -->\n')
   expect(disk.path).toEqual('/home/sam/.claude/turbo-mod-todo.md')
   expect((await ui.findAll({ type: 'Input' })).length).toEqual(0)
   expect(await ui.find({ text: /^1 open$/ })).toBeDefined()
 
   const answer = await $.command.run({ command: 'turbo', args: 'todo Idea: a dark logo' } as never)
   expect(answer.text).toEqual('Task added: Idea: a dark logo')
-  expect(disk.content).toEqual('- [ ] Call the vet\n- [ ] Idea: a dark logo\n')
+  expect(disk.content).toEqual('- [ ] Call the vet <!-- 2026-10-12 -->\n- [ ] Idea: a dark logo <!-- 2026-10-12 -->\n')
   expect((await $.command.run({ command: 'turbo', args: 'todo' } as never)).text).toEqual('2 tasks open.')
 
   // One press on the text does nothing, a late second one neither
@@ -1143,23 +1241,80 @@ test('the widget TODO adds a task from the field and from /turbo todo, ticks it 
   await ui.press({ key: 'todo:text:0' })
   expect((await ui.findAll({ type: 'Input' })).length).toEqual(1)
   await ui.input({ key: 'todo:input', text: 'Call the vet on Monday' })
-  expect(disk.content).toEqual('- [ ] Call the vet on Monday\n- [ ] Idea: a dark logo\n')
+  // Renaming keeps the day the task was noted
+  expect(disk.content).toEqual(
+    '- [ ] Call the vet on Monday <!-- 2026-10-12 -->\n- [ ] Idea: a dark logo <!-- 2026-10-12 -->\n',
+  )
 
   await ui.press({ key: 'todo:done:0' })
-  expect(disk.content).toEqual('- [x] Call the vet on Monday\n- [ ] Idea: a dark logo\n')
+  expect(disk.content).toEqual(
+    '- [x] Call the vet on Monday <!-- 2026-10-12 -->\n- [ ] Idea: a dark logo <!-- 2026-10-12 -->\n',
+  )
   expect(await ui.find({ text: /^1 open$/ })).toBeDefined()
 
-  // Tidying asks a second time
+  // Tidying asks a second time, then the done task moves into the archive next to the list
   await ui.press({ key: 'todo:tidy' })
-  expect(disk.content).toEqual('- [x] Call the vet on Monday\n- [ ] Idea: a dark logo\n')
+  expect(disk.files).toEqual({})
+  disk.now = new Date(2026, 9, 16, 21, 0, 0).getTime()
   await ui.press({ key: 'todo:tidy' })
-  expect(disk.content).toEqual('- [ ] Idea: a dark logo\n')
+  expect(disk.content).toEqual('- [ ] Idea: a dark logo <!-- 2026-10-12 -->\n')
+  expect(disk.files['/home/sam/.claude/turbo-mod-todo-archive.md']).toEqual(
+    '## 2026-10-16\n\n- [x] Call the vet on Monday <!-- 2026-10-12 -->\n',
+  )
 
-  // Removing asks a second time as well
+  // Removing asks a second time as well, and it removes without an archive
   await ui.press({ key: 'todo:remove:0' })
-  expect(disk.content).toEqual('- [ ] Idea: a dark logo\n')
+  expect(disk.content).toEqual('- [ ] Idea: a dark logo <!-- 2026-10-12 -->\n')
   await ui.press({ key: 'todo:remove:0' })
   expect(disk.content).toEqual('')
+  expect(Object.keys(disk.files)).toEqual(['/home/sam/.claude/turbo-mod-todo-archive.md'])
+})
+
+test('a failed archive keeps the done tasks in the list', async ($, on) => {
+  const disk = todoHost(on)
+  disk.content = '- [x] Done\n- [ ] Open\n'
+  disk.refused.push('/home/sam/.claude/turbo-mod-todo-archive.md')
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await ui.press({ key: 'notice:accept' })
+  await $.command.run({ command: 'turbo', args: 'todo' } as never)
+
+  await ui.press({ key: 'todo:tidy' })
+  await ui.press({ key: 'todo:tidy' })
+  expect(disk.content).toEqual('- [x] Done\n- [ ] Open\n')
+  expect(disk.files).toEqual({})
+})
+
+test('/turbo todo copy puts the open tasks on the clipboard, export writes JSON next to the list', async ($, on) => {
+  const disk = todoHost(on)
+  disk.content = '# Ideas\n- [ ] One <!-- 2026-10-12 -->\n- [x] Done\n- [ ] Two\n'
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await ui.press({ key: 'notice:accept' })
+
+  const copied = await $.command.run({ command: 'turbo', args: 'todo copy' } as never)
+  expect(copied.text).toEqual('2 open tasks are on the clipboard.')
+  expect(disk.runs.some(argv => argv.join(' ').includes('- One\n- Two'))).toEqual(true)
+  // The button in the pane does the same
+  const runsBefore = disk.runs.length
+  await ui.press({ key: 'todo:copy' })
+  expect(disk.runs.length).toEqual(runsBefore + 1)
+
+  const exported = await $.command.run({ command: 'turbo', args: 'todo export' } as never)
+  expect(exported.text).toEqual('3 tasks written as JSON to: /home/sam/.claude/turbo-mod-todo.json')
+  const json = JSON.parse(disk.files['/home/sam/.claude/turbo-mod-todo.json'] ?? '{}')
+  expect(json.tasks).toEqual([
+    { text: 'One', isDone: false, addedOn: '2026-10-12' },
+    { text: 'Done', isDone: true, addedOn: null },
+    { text: 'Two', isDone: false, addedOn: null },
+  ])
+
+  // A task that only starts with the word is still a task, the list itself stays as it was
+  await $.command.run({ command: 'turbo', args: 'todo export the logo for print' } as never)
+  expect(disk.content?.endsWith('- [ ] export the logo for print <!-- 2026-10-12 -->\n')).toEqual(true)
+
+  disk.content = '- [x] Only done\n'
+  expect((await $.command.run({ command: 'turbo', args: 'todo kopieren' } as never)).text).toEqual(
+    'No open task to copy.',
+  )
 })
 
 test('cancel closes the field without writing, and an empty Enter adds nothing', async ($, on) => {
