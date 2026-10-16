@@ -1217,3 +1217,23 @@ test('the sample data brings invented tasks and writes nothing', async ($, on) =
   await $.command.run({ command: 'turbo', args: 'demo' } as never)
   expect((await ui.find({ key: 'todo:text:0' }))?.text).toEqual('My real task')
 })
+
+test('trial run: /turbo befehle opens a second pane as a dialog and ticks commands in it', async ($, on) => {
+  on('store.set', () => ({ value: undefined }))
+  // The test host has no list of its own, so the test hands one in
+  on('command.list', () => ({ value: [{ name: 'turbo', description: 'Turbo-MOD', source: 'plugin' }] }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  const main = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await main.press({ key: 'notice:accept' })
+
+  const answer = await $.command.run({ command: 'turbo', args: 'befehle' } as never)
+  expect(answer.text).toEqual('Probelauf: 1 Befehle gelesen, Dialog platziert.')
+
+  const dialog = await $.ui.mount({ ...MOUNT, requestId: 'turbo-befehle', surface: 'terminal' })
+  expect(await dialog.find({ text: /^\d+ Befehle, davon \d+ gezeigt/ })).toBeDefined()
+  expect((await dialog.find({ key: 'pick:turbo' }))?.text).toEqual('[ ]')
+  await dialog.press({ key: 'pick:turbo' })
+  expect((await dialog.find({ key: 'pick:turbo' }))?.text).toEqual('[x]')
+  await dialog.press({ key: 'pick:turbo' })
+  expect((await dialog.find({ key: 'pick:turbo' }))?.text).toEqual('[ ]')
+})

@@ -141,6 +141,20 @@ const pulse = atom({ plugin: 'turbo-mod', key: 'pulse' } as const, 0)
 const accepted = atom({ plugin: 'turbo-mod', key: 'accepted' } as const, false)
 const ready = atom({ plugin: 'turbo-mod', key: 'ready' } as const, false)
 const armed = atom({ plugin: 'turbo-mod', key: 'armed' } as const, '')
+
+// Trial run for the quick commands: a second pane as a dialog. Nothing is saved yet, the run
+// only shows where the surface places the dialog and how it reacts.
+const PICK_PANE = 'turbo-befehle'
+const PICK_ROWS = 8
+type PickState = { commands: { name: string; description: string }[]; picked: string[]; placed: string }
+const pick = atom(
+  { plugin: 'turbo-mod', key: 'pick' } as const,
+  {
+    commands: [],
+    picked: [],
+    placed: '',
+  } as PickState,
+)
 const lang = atom({ plugin: 'turbo-mod', key: 'lang' } as const, '')
 const editorPath = atom({ plugin: 'turbo-mod', key: 'editorPath' } as const, '')
 const usage = atom({ plugin: 'turbo-mod', key: 'usage' } as const, NO_USAGE)
@@ -948,6 +962,23 @@ export const register: Register = (on, options) => {
       await $.ui.open({ id: PANE, title: PANE_TITLE, columns: wantedColumns(e.presentation.columns) })
 
       return { text: t.shown(VERSION) }
+    }
+
+    if (verb === 'befehle' || verb === 'commands') {
+      const commands = (await $.command.list()).map(one => ({ name: one.name, description: one.description }))
+      await update($, pick, now => ({ ...now, commands }))
+      const opened = await $.ui.open({
+        id: PICK_PANE,
+        title: 'Befehle wählen (Probelauf)',
+        focus: true,
+        closeOnEscape: true,
+        holdToasts: true,
+        rows: PICK_ROWS + 4,
+      })
+      const placed = opened.isPlaced ? 'platziert' : `nicht platziert: ${String(opened.reason)}`
+      await update($, pick, now => ({ ...now, placed }))
+
+      return { text: `Probelauf: ${commands.length} Befehle gelesen, Dialog ${placed}.` }
     }
 
     if (verb === 'demo') {
@@ -1811,6 +1842,46 @@ export const register: Register = (on, options) => {
             </Box>
           </Box>
         )}
+      </Box>
+    )
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PICK_PANE }, async ($, e) => {
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const state = await read($, pick)
+    const shown = state.commands.slice(0, PICK_ROWS)
+
+    return (
+      <Box flexDirection="column">
+        <Text dimColor wrap="truncate-end">
+          {`${state.commands.length} Befehle, davon ${shown.length} gezeigt. Esc schließt.`}
+        </Text>
+        {shown.map(command => {
+          const isPicked = state.picked.includes(command.name)
+
+          return (
+            <Box flexDirection="row" columnGap={1}>
+              <Box flexShrink={0}>
+                <Button
+                  key={`pick:${command.name}`}
+                  plain
+                  onPress={() =>
+                    update($, pick, now => ({
+                      ...now,
+                      picked: isPicked ? now.picked.filter(one => one !== command.name) : [...now.picked, command.name],
+                    }))
+                  }
+                >
+                  {isPicked ? '[x]' : '[ ]'}
+                </Button>
+              </Box>
+              <Text wrap="truncate-end">{`/${command.name}  ${command.description}`}</Text>
+            </Box>
+          )
+        })}
+        <Button key="pick:close" plain dimColor onPress={() => $.ui.close({ id: PICK_PANE })}>
+          [schließen]
+        </Button>
       </Box>
     )
   })
