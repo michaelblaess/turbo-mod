@@ -81,6 +81,15 @@ Code, sie ist "early access" und ändert sich zwischen Versionen.
   `Input` auf jeder Fläche außer der mobilen. Dort fehlt das Plus, `/turbo todo <text>` legt
   die Aufgabe an. Solange die Liste leer ist, bleibt der Abschnitt eingeklappt, damit die
   Dateiliste ihren Platz behält.
+- **RetroAmp über zwei Dateien statt über einen Port.** RetroAmp schreibt
+  `~/.retro-amp/now-playing.json` und liest ein Befehlswort aus `~/.retro-amp/control`, nach dem
+  Muster seines eigenen Play-Requests für die zweite Instanz. Ein lokaler HTTP-Port hätte sofort
+  reagiert, wäre aber ein offener Port und für die Prüfung im Verzeichnis ein Punkt mehr unter
+  "sends data out". Die Mediensteuerung des Betriebssystems (SMTC, MPRIS) wäre pro System eigen.
+  Der Mod liest einmal pro Sekunde, solange der Abschnitt offen ist, und rechnet die Position
+  zwischen zwei Schreibvorgängen selbst weiter. Ein Stand älter als 20 Sekunden gilt als beendet,
+  so fällt auch ein Absturz auf, nach dem `running` noch auf true steht. Ohne die Datei gibt es
+  den Abschnitt nicht, auch keine Trennlinie.
 
 ## Offen
 

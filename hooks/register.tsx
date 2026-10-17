@@ -1,7 +1,17 @@
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 
-import type { FeedState, FileEntry, HostInfo, RepoEntry, ReposState, TodoItem, TodoState, UsageState } from '../types'
+import type {
+  FeedState,
+  FileEntry,
+  HostInfo,
+  MusicState,
+  RepoEntry,
+  ReposState,
+  TodoItem,
+  TodoState,
+  UsageState,
+} from '../types'
 import { demoState } from './demo'
 import type { EffectName } from './effects'
 import { EFFECTS, effectFrame } from './effects'
@@ -56,6 +66,8 @@ import {
   terminalActions,
   whereArgv,
 } from './platform'
+import type { MusicCommand } from './retroamp'
+import { controlPathIn, formatPlayTime, isLive, parseNowPlaying, positionAt, statusPathIn, trackName } from './retroamp'
 import type { Lang } from './texts'
 import { findLanguage, LANGUAGES, textsFor } from './texts'
 import { findTheme, lookFor, STANDARD, themeNames } from './theme'
@@ -124,6 +136,13 @@ const NO_FEED: FeedState = { command: '', list: [], since: '', checkedAt: 0, isB
 const NO_USAGE: UsageState = { measuredAt: 0, tokens: 0, window: 0, limits: [], usd: -1 }
 const NO_TODO: TodoState = { path: '', list: [], editing: -2, checkedAt: 0, note: '' }
 const MAX_TODO_ROWS = 12
+const NO_MUSIC: MusicState = { statusPath: '', controlPath: '', checkedAt: 0 }
+// Once a second while the widget is open, so the time runs like on a watch
+const MUSIC_EVERY_MS = 1000
+// Folded or without RetroAmp only every tenth time, enough to notice it starting
+const MUSIC_IDLE_TICKS = 10
+// RetroAmp looks for a command every half second, the reading after that shows the result
+const MUSIC_AFTER_COMMAND_MS = 800
 // Key of the text field of the TODO list, there is never more than one
 const TODO_INPUT = 'todo:input'
 // A second press on the same text within this time counts as a double click
@@ -147,6 +166,7 @@ const usage = atom({ plugin: 'turbo-mod', key: 'usage' } as const, NO_USAGE)
 const ticketUrl = atom({ plugin: 'turbo-mod', key: 'ticketUrl' } as const, '')
 const feed = atom({ plugin: 'turbo-mod', key: 'feed' } as const, NO_FEED)
 const todo = atom({ plugin: 'turbo-mod', key: 'todo' } as const, NO_TODO)
+const music = atom({ plugin: 'turbo-mod', key: 'music' } as const, NO_MUSIC)
 
 // Applies per module load: after a reload the timers are gone and the start runs again
 let isStarted = false
@@ -387,6 +407,48 @@ const writeTodos = async ($: EngineInterface, change: (content: string) => strin
   else await readTodos($)
 
   return isWritten
+}
+
+/** Reads the status file of RetroAmp. Without the file the widget disappears. */
+const readMusic = async ($: EngineInterface): Promise<void> => {
+  if (isDemo) return
+
+  const state = (await read($, music)) ?? NO_MUSIC
+  if (state.statusPath.length === 0) return
+
+  const isThere = await $.fs.exists(state.statusPath).catch(() => false)
+  const content = isThere
+    ? await $.fs
+        .read(state.statusPath)
+        .then(text => (typeof text === 'string' ? text : undefined))
+        .catch(() => undefined)
+    : undefined
+  const found = content === undefined ? undefined : parseNowPlaying(content)
+  // A file being rewritten that moment keeps the last reading instead of letting the widget flicker
+  if (isThere && found === undefined && state.now !== undefined) return
+
+  const checkedAt = await $.clock.now()
+  await update($, music, now => ({ ...now, now: found, checkedAt }))
+}
+
+/** Leaves one command word for RetroAmp and reads again once it had time to act on it. */
+const sendMusic = async ($: EngineInterface, command: MusicCommand): Promise<void> => {
+  const state = (await read($, music)) ?? NO_MUSIC
+  if (state.controlPath.length === 0) return
+
+  const isWritten = await $.fs
+    .write(state.controlPath, command)
+    .then(() => true)
+    .catch(() => false)
+  if (!isWritten) {
+    $.ui.toast(textsFor(await languageNow($)).musicUnwritable)
+
+    return
+  }
+
+  $.clock.after(MUSIC_AFTER_COMMAND_MS, () => {
+    void readMusic($).catch(() => undefined)
+  })
 }
 
 /** Sets the file of the TODO list for this machine. A folder inside a git repo is refused. */
@@ -734,6 +796,13 @@ const restore = async ($: EngineInterface, options: PluginOptions): Promise<void
     note: isTracked ? 'in-repo' : '',
   }))
   await readTodos($).catch(() => undefined)
+  await update($, music, now => ({
+    ...NO_MUSIC,
+    now: now.now,
+    statusPath: home.length > 0 ? statusPathIn(home) : '',
+    controlPath: home.length > 0 ? controlPathIn(home) : '',
+  }))
+  await readMusic($).catch(() => undefined)
   // Only ever switches on: a click that came before the end of the start must not be undone
   if ((await stored('accepted')) === 'yes') await update($, accepted, () => true)
   await readUsage($)
@@ -888,6 +957,16 @@ const startTimers = ($: EngineInterface): void => {
     void (async () => {
       const isFolded = (await read($, collapsed)).files ?? false
       if (!isFolded && (await isPaneUp($))) await checkFiles($)
+    })().catch(() => undefined)
+  })
+  let musicTicks = 0
+  $.clock.every(MUSIC_EVERY_MS, () => {
+    void (async () => {
+      musicTicks = (musicTicks + 1) % MUSIC_IDLE_TICKS
+      const state = (await read($, music)) ?? NO_MUSIC
+      const isFolded = (await read($, collapsed)).music ?? false
+      const isWatched = state.now !== undefined && !isFolded
+      if ((isWatched || musicTicks === 0) && (await isPaneUp($))) await readMusic($)
     })().catch(() => undefined)
   })
   $.clock.every(REPOS_EVERY_MS, () => {
@@ -1163,6 +1242,7 @@ export const register: Register = (on, options) => {
     const feedState = (await read($, feed)) ?? NO_FEED
     const todoState = (await read($, todo)) ?? NO_TODO
     const ticketPattern = (await read($, ticketUrl)) ?? ''
+    const musicState = (await read($, music)) ?? NO_MUSIC
     const contextPercent = usageState.window > 0 ? Math.round((usageState.tokens / usageState.window) * 100) : 0
 
     const columns = Math.max(16, e.props.bodyColumns)
@@ -1207,9 +1287,14 @@ export const register: Register = (on, options) => {
     const doneTodos = todoState.list.length - openTodos
     const todoNote = t.todoNotes[todoState.note] ?? ''
     const todoRows = isTodoFolded ? 2 : 3 + shownTodos.length + (todoState.list.length === 0 ? 1 : 0)
+    // The widget RetroAmp exists only where its status file lies
+    const playing = musicState.now
+    const isMusicFolded = folded.music ?? false
+    const isMusicLive = playing !== undefined && isLive(playing, musicState.checkedAt)
+    const musicRows = playing === undefined ? 0 : isMusicFolded ? 2 : isMusicLive ? 5 : 3
     const fileRoom = Math.max(
       1,
-      Math.floor((rows - 4 - terminalRows - repoRows - sessionRows - feedRows - todoRows - 7) / 4),
+      Math.floor((rows - 4 - terminalRows - repoRows - sessionRows - feedRows - todoRows - musicRows - 7) / 4),
     )
     // The list is paged instead of scrolled, so the other widgets stay where they are
     const pageCount = Math.max(1, Math.ceil(list.length / fileRoom))
@@ -1299,6 +1384,7 @@ export const register: Register = (on, options) => {
           if (id === 'feed' && wasFolded && ((await read($, feed)) ?? NO_FEED).checkedAt === 0) await refreshFeed($)
           // The file may have been edited by hand in the meantime
           if (id === 'todo' && wasFolded) await readTodos($)
+          if (id === 'music' && wasFolded) await readMusic($)
         })}
         <Text bold color={look.accent}>
           {label}
@@ -1318,6 +1404,25 @@ export const register: Register = (on, options) => {
         {'─'.repeat(Math.max(4, columns - 1))}
       </Text>
     )
+
+    // The elapsed time as a bar with the figures behind it, like the display of a sports watch
+    const musicClock = (now: NonNullable<MusicState['now']>) => {
+      const position = positionAt(now, musicState.checkedAt)
+      const suffix =
+        now.durationSeconds > 0
+          ? ` ${formatPlayTime(position)} / ${formatPlayTime(now.durationSeconds)}`
+          : ` ${formatPlayTime(position)}`
+      const width = Math.max(4, columns - 3 - suffix.length)
+      const filled = now.durationSeconds > 0 ? barCells((position / now.durationSeconds) * 100, width) : 0
+
+      return (
+        <Text wrap="truncate-end" {...ink}>
+          <Text color={look.accent}>{'█'.repeat(filled)}</Text>
+          <Text dimColor>{'█'.repeat(width - filled)}</Text>
+          {suffix}
+        </Text>
+      )
+    }
 
     const meter = (label: string, percent: number, footer: string) => {
       // The figure has a fixed width so that all bars end in the same column
@@ -1767,6 +1872,38 @@ export const register: Register = (on, options) => {
                     true,
                   )}
                 {press('todo:refresh', t.reread, () => readTodos($), true)}
+              </Box>
+            )}
+          </Box>
+        )}
+
+        {playing !== undefined && rule}
+        {playing !== undefined &&
+          head('music', t.music, isMusicLive ? (t.musicStates[playing.state] ?? '') : t.musicLast)}
+        {playing !== undefined && !isMusicFolded && (
+          <Box flexDirection="column" marginLeft={2}>
+            {isMusicLive ? (
+              <Text bold wrap="truncate-end" {...ink}>
+                {trackName(playing)}
+              </Text>
+            ) : (
+              <Text dimColor wrap="truncate-end" {...ink}>
+                {trackName(playing)}
+              </Text>
+            )}
+            {isMusicLive && musicClock(playing)}
+            {isMusicLive && (
+              <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+                {playing.commands.includes('previous') &&
+                  press('music:previous', '[◂◂]', () => sendMusic($, 'previous'))}
+                {playing.commands.includes('play_pause') &&
+                  press('music:play_pause', playing.state === 'playing' ? '[❚❚]' : '[▶]', () =>
+                    sendMusic($, 'play_pause'),
+                  )}
+                {playing.commands.includes('next') && press('music:next', '[▸▸]', () => sendMusic($, 'next'))}
+                {playing.commands.includes('stop') &&
+                  playing.state !== 'stopped' &&
+                  press('music:stop', '[■]', () => sendMusic($, 'stop'), true)}
               </Box>
             )}
           </Box>

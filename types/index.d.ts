@@ -99,6 +99,32 @@ export type TodoState = {
   note: string
 }
 
+/** What RetroAmp reports in its status file. */
+export type NowPlaying = {
+  state: 'playing' | 'paused' | 'stopped'
+  title: string
+  artist: string
+  album: string
+  displayName: string
+  positionSeconds: number
+  durationSeconds: number
+  /** Time of the writing in milliseconds. */
+  updatedMs: number
+  /** False once RetroAmp has ended, the file then holds the last track. */
+  isRunning: boolean
+  commands: string[]
+}
+
+export type MusicState = {
+  /** Full path of the status file of RetroAmp, empty until the start has run. */
+  statusPath: string
+  controlPath: string
+  /** The last reading, missing as long as there is no status file. */
+  now?: NowPlaying
+  /** Time of the last reading, 0 as long as none has run. */
+  checkedAt: number
+}
+
 export type UsageLimit = {
   /** Name of the window as the host reports it, for example "five_hour". */
   kind: string
@@ -148,6 +174,8 @@ declare module 'claude-code' {
       usage: UsageState
       feed: FeedState
       todo: TodoState
+      /** What RetroAmp plays, read from its status file. */
+      music: MusicState
       /** Address of a ticket with the placeholder {id}, empty if none is set. */
       ticketUrl: string
     }

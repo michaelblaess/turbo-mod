@@ -235,6 +235,20 @@ The tasks are kept in a Markdown file on your machine, by default
 Lines that are no task stay as they are. `/turbo todo file <path>` moves the list somewhere
 else. A folder inside a git repo is refused, so the tasks never end up in a history.
 
+### RetroAmp (optional)
+
+If you use [RetroAmp](https://github.com/michaelblaess/retro-amp), the terminal music player,
+the pane shows what it plays, like the display of a sports watch:
+
+- Artist and title, the elapsed time as a bar with `1:03 / 5:00` behind it.
+- `[◂◂]` back, `[❚❚]` or `[▶]` pause and play, `[▸▸]` next, `[■]` stop.
+- Once RetroAmp has ended, the last track stays dimmed under "last played", without buttons.
+
+Without RetroAmp the section does not appear at all. The mod looks for the file
+`~/.retro-amp/now-playing.json`, which RetroAmp writes while it runs. RetroAmp needs its remote
+control for this, which has not been released yet. While the section is open the mod reads the
+file once a second, otherwise every ten seconds.
+
 ## Commands
 
 | Command | What it does |
@@ -323,10 +337,14 @@ own and sends nothing to a server of mine.
 - Context size and plan limits as Claude Code reports them.
 - A few environment variables to find your terminal and home folder, such as `WT_SESSION`,
   `TMUX`, `KITTY_WINDOW_ID` and `HOME`.
+- `~/.retro-amp/now-playing.json`, if it exists: state, artist, title and time of the track
+  RetroAmp plays.
 
 **What it writes**
 
-- One file: the TODO list, by default `~/.claude/turbo-mod-todo.md`.
+- The TODO list, by default `~/.claude/turbo-mod-todo.md`.
+- `~/.retro-amp/control`, one word such as `next`, only when you press a button of the
+  RetroAmp section. RetroAmp reads it and deletes it.
 - Its settings, in the store Claude Code gives every mod.
 
 **Slash commands it runs**

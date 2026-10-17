@@ -58,6 +58,12 @@ export type Texts = {
   feedNotes: Record<string, string>
   todo: string
   todoOpen: (open: number) => string
+  music: string
+  /** What RetroAmp does right now, by the state of its status file. */
+  musicStates: Record<string, string>
+  /** RetroAmp has ended or no longer writes. The track shown is the last one. */
+  musicLast: string
+  musicUnwritable: string
   todoCount: (open: number) => string
   todoEmpty: string
   todoPlaceholder: string
@@ -166,6 +172,10 @@ const DE: Texts = {
   },
   todo: 'TODO',
   todoOpen: open => (open === 0 ? '' : `${open} offen`),
+  music: 'RetroAmp',
+  musicStates: { playing: '▶ läuft', paused: '❚❚ Pause', stopped: '■ gestoppt' },
+  musicLast: 'zuletzt gespielt',
+  musicUnwritable: 'Der Befehl für RetroAmp ließ sich nicht schreiben.',
   todoCount: open => (open === 1 ? '1 Aufgabe offen.' : `${open} Aufgaben offen.`),
   todoEmpty: 'Noch keine Aufgaben.',
   todoPlaceholder: 'Neue Aufgabe',
@@ -294,6 +304,10 @@ const EN: Texts = {
   },
   todo: 'TODO',
   todoOpen: open => (open === 0 ? '' : `${open} open`),
+  music: 'RetroAmp',
+  musicStates: { playing: '▶ playing', paused: '❚❚ paused', stopped: '■ stopped' },
+  musicLast: 'last played',
+  musicUnwritable: 'The command for RetroAmp could not be written.',
   todoCount: open => (open === 1 ? '1 task open.' : `${open} tasks open.`),
   todoEmpty: 'No tasks yet.',
   todoPlaceholder: 'New task',

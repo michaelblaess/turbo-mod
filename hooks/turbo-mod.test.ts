@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import { demoState } from './demo'
 import { decryptFrame, effectFrame, errorcorrectFrame, wipeFrame } from './effects'
 import { parseFeed } from './feed'
@@ -33,6 +33,16 @@ import {
   terminalActions,
   whereArgv,
 } from './platform'
+import {
+  controlPathIn,
+  formatPlayTime,
+  isLive,
+  parseNowPlaying,
+  positionAt,
+  STALE_MS,
+  statusPathIn,
+  trackName,
+} from './retroamp'
 import { findLanguage, textsFor } from './texts'
 import { findTheme, lookFor, themeNames } from './theme'
 import { addTodo, changeTodo, clearDoneTodos, fitTodoText, formatTodo, parseTodos, sortTodos, todoPathIn } from './todo'
@@ -1216,4 +1226,129 @@ test('the sample data brings invented tasks and writes nothing', async ($, on) =
 
   await $.command.run({ command: 'turbo', args: 'demo' } as never)
   expect((await ui.find({ key: 'todo:text:0' }))?.text).toEqual('My real task')
+})
+
+const NOW_PLAYING = (fields: Record<string, unknown> = {}): string =>
+  JSON.stringify({
+    version: 1,
+    app: 'retro-amp',
+    running: true,
+    state: 'playing',
+    title: 'Space Oddity',
+    artist: 'David Bowie',
+    album: 'David Bowie',
+    display_name: 'David Bowie - Space Oddity',
+    position_seconds: 60,
+    duration_seconds: 300,
+    updated: 1760000000,
+    commands: ['play_pause', 'play', 'pause', 'next', 'previous', 'stop'],
+    ...fields,
+  })
+
+test('parseNowPlaying takes only the format of RetroAmp', () => {
+  const found = parseNowPlaying(NOW_PLAYING())
+  expect(found?.state).toEqual('playing')
+  expect(found?.updatedMs).toEqual(1760000000000)
+  expect(found?.isRunning).toEqual(true)
+  expect(parseNowPlaying(NOW_PLAYING({ app: 'other' }))).toEqual(undefined)
+  expect(parseNowPlaying(NOW_PLAYING({ version: 2 }))).toEqual(undefined)
+  expect(parseNowPlaying('{"app": "retro-amp", ')).toEqual(undefined)
+  expect(parseNowPlaying(NOW_PLAYING({ state: 'exploding' }))?.state).toEqual('stopped')
+})
+
+test('positionAt runs on while a track plays and stops at its end', () => {
+  const playing = parseNowPlaying(NOW_PLAYING()) as NonNullable<ReturnType<typeof parseNowPlaying>>
+  expect(positionAt(playing, 1760000000000 + 7000)).toEqual(67)
+  expect(positionAt(playing, 1760000000000 + 19000)).toEqual(79)
+  expect(positionAt({ ...playing, durationSeconds: 62 }, 1760000000000 + 7000)).toEqual(62)
+  expect(positionAt({ ...playing, state: 'paused' }, 1760000000000 + 7000)).toEqual(60)
+  // Without a fresh writing RetroAmp is gone, the time stands still
+  expect(isLive(playing, 1760000000000 + STALE_MS)).toEqual(false)
+  expect(positionAt(playing, 1760000000000 + STALE_MS)).toEqual(60)
+  expect(isLive({ ...playing, isRunning: false }, 1760000000000)).toEqual(false)
+})
+
+test('formatPlayTime and trackName read like the display of a watch', () => {
+  expect(formatPlayTime(0)).toEqual('0:00')
+  expect(formatPlayTime(187.9)).toEqual('3:07')
+  expect(formatPlayTime(3727)).toEqual('1:02:07')
+  const playing = parseNowPlaying(NOW_PLAYING()) as NonNullable<ReturnType<typeof parseNowPlaying>>
+  expect(trackName(playing)).toEqual('David Bowie - Space Oddity')
+  expect(trackName({ ...playing, artist: '', displayName: 'track01' })).toEqual('track01')
+  expect(statusPathIn('C:\\Users\\Sam\\')).toEqual('C:\\Users\\Sam\\.retro-amp\\now-playing.json')
+  expect(controlPathIn('/home/sam')).toEqual('/home/sam/.retro-amp/control')
+})
+
+/** Answers the status file of RetroAmp and the control file from memory. */
+const musicHost = (on: TestOn) => {
+  const disk: { status: string | undefined; control: string; controlPath: string } = {
+    status: undefined,
+    control: '',
+    controlPath: '',
+  }
+  on('store.set', () => ({ value: undefined }))
+  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
+  on('ui.panes', () => ({ value: [{ id: 'turbo-mod', isPlaced: true }] }) as never)
+  on('fs.exists', (_$, e) => ({ value: e.path.endsWith('now-playing.json') && disk.status !== undefined }))
+  on('fs.read', () => ({ value: disk.status ?? '' }))
+  on('fs.write', (_$, e) => {
+    disk.control = e.text
+    disk.controlPath = e.path
+      .split('\\')
+      .join('/')
+      .replace(/^[A-Za-z]:/, '')
+
+    return { value: undefined }
+  })
+  on('process.run', () => ({
+    value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  }))
+
+  return disk
+}
+
+test('without the status file of RetroAmp the widget does not appear', async ($, on) => {
+  const disk = musicHost(on)
+  const clock = mock.clock(on, { now: 1760000000000 })
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await $.command.run({ command: 'turbo', args: 'todo' } as never)
+  expect(await ui.find({ text: /^RetroAmp$/ })).toEqual(undefined)
+  expect(await ui.find({ key: 'music:next' })).toEqual(undefined)
+  // Not even the line that separates it from the next widget
+  const rules = (await ui.findAll({ text: /^─+$/ })).length
+
+  // RetroAmp starts later: the slow beat finds it within ten seconds
+  disk.status = NOW_PLAYING({ updated: 1760000009 })
+  await clock.advance(10000)
+  expect(await ui.find({ text: /^RetroAmp$/ })).toBeDefined()
+  expect((await ui.findAll({ text: /^─+$/ })).length).toEqual(rules + 1)
+})
+
+test('the widget RetroAmp shows the track, lets the time run and sends commands', GERMAN, async ($, on) => {
+  const disk = musicHost(on)
+  const clock = mock.clock(on, { now: 1760000000000 })
+  disk.status = NOW_PLAYING()
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await $.command.run({ command: 'turbo', args: 'todo' } as never)
+  expect(await ui.find({ text: /^RetroAmp$/ })).toBeDefined()
+  expect(await ui.find({ text: /▶ läuft/ })).toBeDefined()
+  expect(await ui.find({ text: /^David Bowie - Space Oddity$/ })).toBeDefined()
+  expect(await ui.find({ text: / 1:00 \/ 5:00$/ })).toBeDefined()
+
+  // A second later the timer has read again, the time runs on without a new writing
+  await clock.advance(3000)
+  expect(await ui.find({ text: / 1:03 \/ 5:00$/ })).toBeDefined()
+
+  await ui.press({ key: 'music:next' })
+  expect(disk.control).toEqual('next')
+  expect(disk.controlPath).toEqual('/home/sam/.retro-amp/control')
+  await ui.press({ key: 'music:play_pause' })
+  expect(disk.control).toEqual('play_pause')
+
+  // RetroAmp has ended: the last track stays, dimmed and without buttons
+  disk.status = NOW_PLAYING({ running: false, state: 'stopped', updated: 1760000003 })
+  await clock.advance(1000)
+  expect(await ui.find({ text: /zuletzt gespielt/ })).toBeDefined()
+  expect(await ui.find({ text: /^David Bowie - Space Oddity$/ })).toBeDefined()
+  expect(await ui.find({ key: 'music:next' })).toEqual(undefined)
 })
