@@ -235,17 +235,17 @@ The tasks are kept in a Markdown file on your machine, by default
 Lines that are no task stay as they are. `/turbo todo file <path>` moves the list somewhere
 else. A folder inside a git repo is refused, so the tasks never end up in a history.
 
-### RetroAmp (optional)
+### retro-amp (optional)
 
-If you use [RetroAmp](https://github.com/michaelblaess/retro-amp), the terminal music player,
+If you use [retro-amp](https://github.com/michaelblaess/retro-amp), the terminal music player,
 the pane shows what it plays, like the display of a sports watch:
 
 - Artist and title, the elapsed time as a bar with `1:03 / 5:00` behind it.
 - `[◂◂]` back, `[❚❚]` or `[▶]` pause and play, `[▸▸]` next, `[■]` stop.
-- Once RetroAmp has ended, the last track stays dimmed under "last played", without buttons.
+- Once retro-amp has ended, the last track stays dimmed under "last played", without buttons.
 
-Without RetroAmp the section does not appear at all. The mod looks for the file
-`~/.retro-amp/now-playing.json`, which RetroAmp writes while it runs. This needs RetroAmp 0.36.0 or
+Without retro-amp the section does not appear at all. The mod looks for the file
+`~/.retro-amp/now-playing.json`, which retro-amp writes while it runs. This needs retro-amp 0.36.0 or
 later. While the section is open the mod reads the file once a second, otherwise every ten
 seconds.
 
@@ -338,13 +338,13 @@ own and sends nothing to a server of mine.
 - A few environment variables to find your terminal and home folder, such as `WT_SESSION`,
   `TMUX`, `KITTY_WINDOW_ID` and `HOME`.
 - `~/.retro-amp/now-playing.json`, if it exists: state, artist, title and time of the track
-  RetroAmp plays.
+  retro-amp plays.
 
 **What it writes**
 
 - The TODO list, by default `~/.claude/turbo-mod-todo.md`.
 - `~/.retro-amp/control`, one word such as `next`, only when you press a button of the
-  RetroAmp section. RetroAmp reads it and deletes it.
+  retro-amp section. retro-amp reads it and deletes it.
 - Its settings, in the store Claude Code gives every mod.
 
 **Slash commands it runs**

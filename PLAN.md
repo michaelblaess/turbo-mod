@@ -81,7 +81,7 @@ Code, sie ist "early access" und ändert sich zwischen Versionen.
   `Input` auf jeder Fläche außer der mobilen. Dort fehlt das Plus, `/turbo todo <text>` legt
   die Aufgabe an. Solange die Liste leer ist, bleibt der Abschnitt eingeklappt, damit die
   Dateiliste ihren Platz behält.
-- **RetroAmp über zwei Dateien statt über einen Port.** RetroAmp schreibt
+- **retro-amp über zwei Dateien statt über einen Port.** retro-amp schreibt
   `~/.retro-amp/now-playing.json` und liest ein Befehlswort aus `~/.retro-amp/control`, nach dem
   Muster seines eigenen Play-Requests für die zweite Instanz. Ein lokaler HTTP-Port hätte sofort
   reagiert, wäre aber ein offener Port und für die Prüfung im Verzeichnis ein Punkt mehr unter

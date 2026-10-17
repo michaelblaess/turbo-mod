@@ -139,9 +139,9 @@ const MAX_TODO_ROWS = 12
 const NO_MUSIC: MusicState = { statusPath: '', controlPath: '', checkedAt: 0 }
 // Once a second while the widget is open, so the time runs like on a watch
 const MUSIC_EVERY_MS = 1000
-// Folded or without RetroAmp only every tenth time, enough to notice it starting
+// Folded or without retro-amp only every tenth time, enough to notice it starting
 const MUSIC_IDLE_TICKS = 10
-// RetroAmp looks for a command every half second, the reading after that shows the result
+// retro-amp looks for a command every half second, the reading after that shows the result
 const MUSIC_AFTER_COMMAND_MS = 800
 // Key of the text field of the TODO list, there is never more than one
 const TODO_INPUT = 'todo:input'
@@ -409,7 +409,7 @@ const writeTodos = async ($: EngineInterface, change: (content: string) => strin
   return isWritten
 }
 
-/** Reads the status file of RetroAmp. Without the file the widget disappears. */
+/** Reads the status file of retro-amp. Without the file the widget disappears. */
 const readMusic = async ($: EngineInterface): Promise<void> => {
   if (isDemo) return
 
@@ -431,7 +431,7 @@ const readMusic = async ($: EngineInterface): Promise<void> => {
   await update($, music, now => ({ ...now, now: found, checkedAt }))
 }
 
-/** Leaves one command word for RetroAmp and reads again once it had time to act on it. */
+/** Leaves one command word for retro-amp and reads again once it had time to act on it. */
 const sendMusic = async ($: EngineInterface, command: MusicCommand): Promise<void> => {
   const state = (await read($, music)) ?? NO_MUSIC
   if (state.controlPath.length === 0) return
@@ -1287,11 +1287,13 @@ export const register: Register = (on, options) => {
     const doneTodos = todoState.list.length - openTodos
     const todoNote = t.todoNotes[todoState.note] ?? ''
     const todoRows = isTodoFolded ? 2 : 3 + shownTodos.length + (todoState.list.length === 0 ? 1 : 0)
-    // The widget RetroAmp exists only where its status file lies
+    // The widget retro-amp exists only where its status file lies
     const playing = musicState.now
     const isMusicFolded = folded.music ?? false
     const isMusicLive = playing !== undefined && isLive(playing, musicState.checkedAt)
-    const musicRows = playing === undefined ? 0 : isMusicFolded ? 2 : isMusicLive ? 5 : 3
+    // Right after its start retro-amp runs without a track, then there is no time to show
+    const hasTrack = playing !== undefined && trackName(playing).length > 0
+    const musicRows = playing === undefined ? 0 : isMusicFolded ? 2 : isMusicLive ? (hasTrack ? 5 : 4) : 3
     const fileRoom = Math.max(
       1,
       Math.floor((rows - 4 - terminalRows - repoRows - sessionRows - feedRows - todoRows - musicRows - 7) / 4),
@@ -1882,16 +1884,16 @@ export const register: Register = (on, options) => {
           head('music', t.music, isMusicLive ? (t.musicStates[playing.state] ?? '') : t.musicLast)}
         {playing !== undefined && !isMusicFolded && (
           <Box flexDirection="column" marginLeft={2}>
-            {isMusicLive ? (
+            {isMusicLive && hasTrack ? (
               <Text bold wrap="truncate-end" {...ink}>
                 {trackName(playing)}
               </Text>
             ) : (
               <Text dimColor wrap="truncate-end" {...ink}>
-                {trackName(playing)}
+                {hasTrack ? trackName(playing) : t.musicNoTrack}
               </Text>
             )}
-            {isMusicLive && musicClock(playing)}
+            {isMusicLive && hasTrack && musicClock(playing)}
             {isMusicLive && (
               <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
                 {playing.commands.includes('previous') &&

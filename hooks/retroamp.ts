@@ -1,14 +1,14 @@
-// The bridge to RetroAmp - without $ and therefore directly testable.
-// RetroAmp writes what it plays to a status file below the home folder and takes one command
+// The bridge to retro-amp - without $ and therefore directly testable.
+// retro-amp writes what it plays to a status file below the home folder and takes one command
 // word from a second file. Without that status file the widget does not appear at all.
 import type { NowPlaying } from '../types'
 
-/** Written by RetroAmp since it has the remote control. */
+/** Written by retro-amp since it has the remote control. */
 export const STATUS_FILE = '.retro-amp/now-playing.json'
-/** Read by RetroAmp every half second, then deleted. */
+/** Read by retro-amp every half second, then deleted. */
 export const CONTROL_FILE = '.retro-amp/control'
 
-/** RetroAmp writes at least every 5 seconds while it runs. Older than this means it is gone. */
+/** retro-amp writes at least every 5 seconds while it runs. Older than this means it is gone. */
 export const STALE_MS = 20000
 
 export type MusicCommand = 'play_pause' | 'next' | 'previous' | 'stop'
@@ -53,7 +53,7 @@ export const parseNowPlaying = (content: string): NowPlaying | undefined => {
   }
 }
 
-/** True while RetroAmp runs: it says so and has written lately. A crash leaves `running` true, the time tells. */
+/** True while retro-amp runs: it says so and has written lately. A crash leaves `running` true, the time tells. */
 export const isLive = (now: NowPlaying, at: number): boolean => now.isRunning && at - now.updatedMs < STALE_MS
 
 /** The position at a moment. While a track plays, the time since the writing is added, up to its end. */
@@ -75,7 +75,7 @@ export const formatPlayTime = (seconds: number): string => {
   return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${rest}` : `${minutes}:${rest}`
 }
 
-/** Artist and title if both are known, otherwise what RetroAmp shows itself. */
+/** Artist and title if both are known, otherwise what retro-amp shows itself. */
 export const trackName = (now: NowPlaying): string =>
   now.artist.length > 0 && now.title.length > 0 ? `${now.artist} - ${now.title}` : now.displayName
 
