@@ -18,7 +18,17 @@ import {
   ticketOf,
   workingLabel,
 } from './format'
-import { isClean, parseChanges, parseDiff, parseStatus, pathKey, repoCounts, repoPath, sortRepos } from './git'
+import {
+  isClean,
+  parseChanges,
+  parseDiff,
+  parseStatus,
+  pathKey,
+  repoCounts,
+  repoPath,
+  sortRepos,
+  syncCandidates,
+} from './git'
 import {
   copyFileArgv,
   copyTextArgv,
@@ -1216,4 +1226,77 @@ test('the sample data brings invented tasks and writes nothing', async ($, on) =
 
   await $.command.run({ command: 'turbo', args: 'demo' } as never)
   expect((await ui.find({ key: 'todo:text:0' }))?.text).toEqual('My real task')
+})
+
+test('a sync pulls only repos that are behind and clean, the others are skipped', () => {
+  const repo = (name: string, ahead: number, behind: number, changed: number, untracked = 0, isRead = true) => ({
+    root: '/repos',
+    dir: `/repos/${name}`,
+    name,
+    branch: 'main',
+    ahead,
+    behind,
+    changed,
+    untracked,
+    isRead,
+  })
+  const { pull, skipped } = syncCandidates([
+    repo('behind', 0, 2, 0),
+    repo('new-files', 0, 1, 0, 3),
+    repo('current', 0, 0, 0),
+    repo('changed', 0, 1, 2),
+    repo('diverged', 1, 1, 0),
+    repo('unreadable', 0, 1, 0, 0, false),
+  ])
+  expect(pull.map(one => one.name)).toEqual(['behind', 'new-files'])
+  expect(skipped.map(one => one.name)).toEqual(['changed', 'diverged', 'unreadable'])
+})
+
+test('[sync all] fetches every repo, pulls the clean ones behind and counts the rest', async ($, on) => {
+  const git: string[] = []
+  on('store.set', () => ({ value: undefined }))
+  on('clock.now', () => ({ value: 1760000000000 }))
+  on('fs.list', () => ({
+    value: ['clean', 'dirty', 'fresh'].map(name => ({ name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false })),
+  }))
+  on('fs.stat', () => ({ value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }))
+  const pulledDirs: string[] = []
+  on('process.run', (_$, e) => {
+    const dir = String(e.init?.cwd)
+    git.push(`${e.argv[1]} ${dir}`)
+    if (e.argv[1] === 'pull') pulledDirs.push(dir)
+    const behind = dir.endsWith('fresh') || pulledDirs.includes(dir) ? 0 : 2
+    const changes = dir.endsWith('dirty') ? '1 .M N... 100644 100644 100644 a b file.ts\n' : ''
+
+    return {
+      value: {
+        exitCode: 0,
+        stdout: `# branch.head main\n# branch.ab +0 -${behind}\n${changes}`,
+        stderr: '',
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+      },
+    }
+  })
+
+  await $.command.run({ command: 'turbo', args: 'repos /repos' } as never)
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await ui.press({ key: 'notice:accept' })
+
+  // One press only arms the button, nothing reaches git
+  git.length = 0
+  await ui.press({ key: 'repos:sync' })
+  expect(git).toEqual([])
+  expect((await ui.find({ key: 'repos:sync' }))?.text).not.toEqual('[sync all]')
+
+  await ui.press({ key: 'repos:sync' })
+  expect(git.filter(call => call.startsWith('fetch'))).toEqual([
+    'fetch /repos/clean',
+    'fetch /repos/dirty',
+    'fetch /repos/fresh',
+  ])
+  // Only the clean repo behind the server is pulled, the one with changes is skipped
+  expect(git.filter(call => call.startsWith('pull'))).toEqual(['pull /repos/clean'])
+  expect(git[git.length - 1]).toEqual('status /repos/clean')
+  expect((await ui.find({ key: 'repos:sync' }))?.text).toEqual('[sync all]')
 })

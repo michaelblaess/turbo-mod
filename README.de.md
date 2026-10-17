@@ -96,7 +96,7 @@ das Pane auf Deutsch.
 ## Erste Schritte
 
 - Beim allerersten Start zeigt das Pane einen kurzen Disclaimer in einem Rahmen. Klick einmal auf `[Verstanden]`.
-  Bis dahin bleiben `[pull]`, `[alle fetchen]` und der Ticket-Befehl gesperrt, alles andere
+  Bis dahin bleiben `[pull]`, `[alle fetchen]`, `[alle syncen]` und der Ticket-Befehl gesperrt, alles andere
   läuft. Die Antwort merkt sich der Mod auf diesem Rechner.
 - Lass Claude eine Datei schreiben. Sie erscheint unter **Dateien**, die jüngste oben.
 - Der Pfeil vor einer Überschrift klappt das Widget ein und wieder aus.
@@ -158,6 +158,11 @@ offen ist.
 - `[>_]` öffnet einen Terminal-Split im Ordner dieses Repos.
 - `[alle fetchen]` führt in jedem Repo `git fetch` aus und liest neu. Damit siehst Du, welche
   Repos zurückliegen, denn das Lesen allein fragt nie einen Server.
+- `[alle syncen]` holt erst alles vom Server wie `[alle fetchen]` und zieht danach jedes Repo
+  per `git pull --ff-only` nach, das zurückliegt und weder geänderte Dateien noch eigene
+  Commits hat. Die übrigen bleiben unangetastet, die Meldung am Ende zählt nachgezogene,
+  übersprungene und fehlgeschlagene Repos. Weil der Knopf viele Repos auf einmal ändert,
+  braucht er einen zweiten Klick.
 - `[Ordner hinzufügen]` nimmt einen weiteren Ordner dazu, das `×` vor einem Ordner nimmt ihn aus
   der Liste. Bei mehr als einem Ordner stehen die Repos nach Ordner gruppiert.
 - Ist eine Ticket-Adresse gesetzt, wird die Ticketnummer im Branchnamen (`ABC-123` in
@@ -315,8 +320,8 @@ er nicht, und an einen Server von mir geht nichts.
 
 - `git`, nur lesend, für die Repo-Liste und die Dateiliste: `status`, `rev-parse` und `diff`. Das
   läuft im Takt und nach jedem Shell-Kommando der Sitzung.
-- `git fetch` und `git pull --ff-only`, nur wenn Du `[alle fetchen]` oder `[pull]` drückst. Diese
-  beiden sprechen mit Deinem Git-Remote.
+- `git fetch` und `git pull --ff-only`, nur wenn Du `[alle fetchen]`, `[alle syncen]` oder
+  `[pull]` drückst. Diese beiden sprechen mit Deinem Git-Remote.
 - Dein Terminal, für die Split-Knöpfe: `wt.exe` im Windows Terminal, `tmux` oder `kitty @`. Unter
   Windows startet `[Letztes Pane schließen]` ein kurzes PowerShell-Skript.
 - Den eingestellten Editor, wenn Du den Editor-Knopf einer Datei drückst.
@@ -377,8 +382,8 @@ sie beim Klick, der Mod lädt sie nicht.
   Schemata stehen die Knöpfe deshalb auf einem dunklen Grund. Bei einem hellen Terminal und
   einem dunklen Schema kann ein Knopf schlecht lesbar sein.
 - Das Lesen der Repos fragt nie einen Server. "Voraus" und "zurück" stammen vom letzten Fetch,
-  nur `[pull]` und `[alle fetchen]` sprechen mit dem Server. Beide warten höchstens eine Minute
-  je Repo.
+  nur `[pull]`, `[alle fetchen]` und `[alle syncen]` sprechen mit dem Server. Sie warten höchstens
+  eine Minute je Repo.
 - Gelesen werden höchstens 80 Ordner unter jedem Repo-Ordner.
 
 ## Für Entwickler

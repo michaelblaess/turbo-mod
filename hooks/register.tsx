@@ -38,6 +38,7 @@ import {
   repoPath,
   STATUS_ARGV,
   sortRepos,
+  syncCandidates,
   TOP_HEAD_ARGV,
 } from './git'
 import {
@@ -156,6 +157,8 @@ let isTitleLooping = true
 let lastTextPress = { key: '', at: 0 }
 // While sample data is shown, nothing real may be read or written into the pane
 let isDemo = false
+// True while [sync all] works through the repos, so its button shows the dots and [pull] does not
+let isSyncingAll = false
 let beforeDemo:
   | {
       files: FileEntry[]
@@ -578,6 +581,41 @@ const pullRepo = async ($: EngineInterface, repo: RepoEntry): Promise<void> => {
     pulling: '',
     list: sortRepos(now.list.map(one => (one.dir === repo.dir ? after : one))),
   }))
+}
+
+/**
+ * Fetches every repo, then pulls fast-forward only those that are behind and clean, one after the
+ * other. A repo with own changes or own commits is skipped, the toast at the end counts all three.
+ */
+const syncAllRepos = async ($: EngineInterface): Promise<void> => {
+  if (isDemo) return
+  if (!(await isAccepted($))) return
+
+  await refreshRepos($, true)
+  const before = await read($, repos)
+  if (before.isBusy || (before.pulling ?? '').length > 0) return
+
+  const t = textsFor(await languageNow($))
+  const { pull, skipped } = syncCandidates(before.list)
+  isSyncingAll = true
+  let pulled = 0
+  let failed = 0
+  for (const repo of pull) {
+    await update($, repos, now => ({ ...now, pulling: repo.dir }))
+    const result = await $.process.run(PULL_ARGV, { cwd: repo.dir, timeoutMs: NET_TIMEOUT_MS }).catch(() => undefined)
+    if (result?.exitCode === 0) pulled += 1
+    else failed += 1
+
+    const after = await readRepo($, repo.root, repo.dir, repo.name)
+    await update($, repos, now => ({
+      ...now,
+      list: sortRepos(now.list.map(one => (one.dir === repo.dir ? after : one))),
+    }))
+  }
+
+  isSyncingAll = false
+  await update($, repos, now => ({ ...now, pulling: '' }))
+  $.ui.toast(t.synced(pulled, skipped.length, failed))
 }
 
 /** Sets the repo folders for this machine, expands the widget and reads. */
@@ -1627,6 +1665,15 @@ export const register: Register = (on, options) => {
                 'repos:fetch',
                 repoState.isFetching ? working(t.fetching) : t.fetchAll,
                 () => refreshRepos($, true),
+                true,
+              )}
+              {/* Pulling changes the working trees of many repos at once, so it needs a second press */}
+              {press(
+                'repos:sync',
+                isSyncingAll ? working(t.syncing) : armedKey === 'repos:sync' ? t.confirmRun : t.syncAll,
+                async () => {
+                  if (await isSecondPress($, 'repos:sync')) await syncAllRepos($)
+                },
                 true,
               )}
               {press('repos:pick', t.addFolder, () => pickReposRoot($), true)}

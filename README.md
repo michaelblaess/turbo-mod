@@ -89,7 +89,7 @@ columns wide. In a narrower window, type `/turbo`.
 ## First steps
 
 - On the very first start the pane shows a short disclaimer in a frame. Click `[Understood]` once. Until then
-  `[pull]`, `[fetch all]` and the ticket command stay locked, everything else works. The
+  `[pull]`, `[fetch all]`, `[sync all]` and the ticket command stay locked, everything else works. The
   answer is remembered on this machine.
 - Ask Claude to write a file. It shows up under **Files**, newest on top.
 - Click the arrow in front of a heading to fold a widget away.
@@ -150,6 +150,10 @@ open.
 - `[>_]` opens a terminal split in the folder of that repo.
 - `[fetch all]` runs `git fetch` in every repo and reads again. Use it to see which repos are
   behind, since reading alone never contacts a server.
+- `[sync all]` first fetches everything like `[fetch all]`, then runs `git pull --ff-only` in
+  every repo that is behind and has neither changed files nor own commits. The others stay
+  untouched, the message at the end counts pulled, skipped and failed repos. Since the button
+  changes many repos at once, it needs a second press.
 - `[add folder]` adds another folder, the `×` in front of a folder removes it from the list.
   With more than one folder, the repos are grouped by folder.
 - With a ticket address set, a ticket key in a branch name (`ABC-123` in
@@ -304,8 +308,8 @@ own and sends nothing to a server of mine.
 
 - `git`, read-only, for the repo list and the file list: `status`, `rev-parse` and `diff`. This
   runs on a timer and after every shell command of the session.
-- `git fetch` and `git pull --ff-only`, only when you press `[fetch all]` or `[pull]`. These two
-  talk to your git remote.
+- `git fetch` and `git pull --ff-only`, only when you press `[fetch all]`, `[sync all]` or
+  `[pull]`. These two talk to your git remote.
 - Your terminal, for the split buttons: `wt.exe` on Windows Terminal, `tmux`, or `kitty @`. On
   Windows, `[Close last pane]` runs a short PowerShell script.
 - The editor you set, when you press the editor button of a file.
@@ -360,7 +364,8 @@ when you click, the mod does not load them.
   schemes the buttons therefore sit on a dark patch. With a light terminal and a dark scheme
   a button can be hard to read.
 - Reading the repos never contacts a server. "Ahead" and "behind" reflect your last fetch,
-  only `[pull]` and `[fetch all]` talk to the server. Both wait at most a minute per repo.
+  only `[pull]`, `[fetch all]` and `[sync all]` talk to the server. They wait at most a minute
+  per repo.
 - At most 80 folders below each repo folder are read.
 
 ## For developers

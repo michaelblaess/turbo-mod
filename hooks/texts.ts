@@ -29,6 +29,9 @@ export type Texts = {
   addFolder: string
   fetchAll: string
   fetching: string
+  syncAll: string
+  syncing: string
+  synced: (pulled: number, skipped: number, failed: number) => string
   pull: string
   pulled: (name: string) => string
   rootRemoved: (root: string) => string
@@ -136,6 +139,17 @@ const DE: Texts = {
   addFolder: 'Ordner hinzufügen',
   fetchAll: 'alle fetchen',
   fetching: 'fetcht ...',
+  syncAll: 'alle syncen',
+  syncing: 'synct ...',
+  synced: (pulled, skipped, failed) =>
+    [
+      `${pulled} nachgezogen`,
+      skipped > 0 ? `${skipped} übersprungen (eigene Änderungen oder Commits)` : '',
+      failed > 0 ? `${failed} fehlgeschlagen, [pull] am Repo nennt den Grund` : '',
+    ]
+      .filter(part => part.length > 0)
+      .join(', ')
+      .concat('.'),
   pull: 'pull',
   pulled: name => `${name}: auf dem Stand des Servers.`,
   rootRemoved: root => `Repo-Ordner entfernt: ${root}`,
@@ -264,6 +278,17 @@ const EN: Texts = {
   addFolder: 'add folder',
   fetchAll: 'fetch all',
   fetching: 'fetching ...',
+  syncAll: 'sync all',
+  syncing: 'syncing ...',
+  synced: (pulled, skipped, failed) =>
+    [
+      `${pulled} pulled`,
+      skipped > 0 ? `${skipped} skipped (own changes or commits)` : '',
+      failed > 0 ? `${failed} failed, [pull] at the repo names the reason` : '',
+    ]
+      .filter(part => part.length > 0)
+      .join(', ')
+      .concat('.'),
   pull: 'pull',
   pulled: name => `${name}: up to date with the server.`,
   rootRemoved: root => `Repo folder removed: ${root}`,
