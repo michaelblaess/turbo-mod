@@ -125,6 +125,9 @@ const NO_FEED: FeedState = { command: '', list: [], since: '', checkedAt: 0, isB
 const NO_USAGE: UsageState = { measuredAt: 0, tokens: 0, window: 0, limits: [], usd: -1 }
 const NO_TODO: TodoState = { path: '', list: [], editing: -2, checkedAt: 0, note: '' }
 const MAX_TODO_ROWS = 12
+// Dirty repos per page and files that always stay visible, the host scrolls the pane beyond that
+const REPO_PAGE = 6
+const MIN_FILES = 3
 // Key of the text field of the TODO list, there is never more than one
 const TODO_INPUT = 'todo:input'
 // A second press on the same text within this time counts as a double click
@@ -138,6 +141,7 @@ const host = atom({ plugin: 'turbo-mod', key: 'host' } as const, NO_HOST)
 const theme = atom({ plugin: 'turbo-mod', key: 'theme' } as const, STANDARD)
 const title = atom({ plugin: 'turbo-mod', key: 'title' } as const, TITLE)
 const filePage = atom({ plugin: 'turbo-mod', key: 'filePage' } as const, 0)
+const repoPage = atom({ plugin: 'turbo-mod', key: 'repoPage' } as const, 0)
 const pulse = atom({ plugin: 'turbo-mod', key: 'pulse' } as const, 0)
 const accepted = atom({ plugin: 'turbo-mod', key: 'accepted' } as const, false)
 const ready = atom({ plugin: 'turbo-mod', key: 'ready' } as const, false)
@@ -1224,14 +1228,18 @@ export const register: Register = (on, options) => {
 
     // How many rows the other widgets need, the rest belongs to the files (four rows per file)
     const terminalRows = isFolded('terminal') ? 1 : 3
-    const repoRoom = Math.max(3, Math.floor(rows / 4))
+    const repoRoom = Math.min(REPO_PAGE, Math.max(3, Math.floor(rows / 4)))
+    const repoPageCount = Math.max(1, Math.ceil(dirty.length / repoRoom))
+    const shownRepoPage = Math.min(Math.max(0, await read($, repoPage)), repoPageCount - 1)
     const roots = rootsOf(repoState)
     const pulling = repoState.pulling ?? ''
     // One to three dots in a fixed width, so the button does not change its size
     const step = (await read($, pulse)) ?? 0
     const dots = dotsFor(step)
     const working = (label: string): string => workingLabel(label, step)
-    const repoRows = isFolded('repos') ? 1 : 2 + 2 * roots.length + Math.min(dirty.length, repoRoom)
+    const repoRows = isFolded('repos')
+      ? 1
+      : 2 + 2 * roots.length + Math.min(dirty.length, repoRoom) + (repoPageCount > 1 ? 1 : 0)
     const sessionRows = isFolded('session') ? 1 : 5 + 3 * usageState.limits.length
     // The feed widget exists only with a command and starts collapsed
     const isFeedOn = feedState.command.length > 0
@@ -1246,7 +1254,7 @@ export const register: Register = (on, options) => {
     const todoNote = t.todoNotes[todoState.note] ?? ''
     const todoRows = isTodoFolded ? 2 : 3 + shownTodos.length + (todoState.list.length === 0 ? 1 : 0)
     const fileRoom = Math.max(
-      1,
+      MIN_FILES,
       Math.floor((rows - 4 - terminalRows - repoRows - sessionRows - feedRows - todoRows - 7) / 4),
     )
     // The list is paged instead of scrolled, so the other widgets stay where they are
@@ -1254,7 +1262,7 @@ export const register: Register = (on, options) => {
     const page = Math.min(Math.max(0, await read($, filePage)), pageCount - 1)
     const shownFiles = list.slice(page * fileRoom, (page + 1) * fileRoom)
     const numberWidth = String(list.reduce((highest, one) => Math.max(highest, one.no), 1)).length
-    const shownRepos = dirty.slice(0, repoRoom)
+    const shownRepos = dirty.slice(shownRepoPage * repoRoom, (shownRepoPage + 1) * repoRoom)
 
     // A button takes no color. On light schemes it therefore sits on a dark ground.
     // Square brackets mark what can be clicked. A single glyph (an arrow, the cross) stays bare.
@@ -1623,11 +1631,16 @@ export const register: Register = (on, options) => {
               </Box>
             )
           })}
-        {!isFolded('repos') && dirty.length > shownRepos.length && (
-          <Text dimColor {...ink}>
-            {'  '}
-            {t.more(dirty.length - shownRepos.length)}
-          </Text>
+        {!isFolded('repos') && repoPageCount > 1 && (
+          <Box flexDirection="row" columnGap={1} marginLeft={2}>
+            {press('repos:prev', '◂', () =>
+              update($, repoPage, () => (shownRepoPage + repoPageCount - 1) % repoPageCount),
+            )}
+            <Text dimColor {...ink}>
+              {t.range(shownRepoPage * repoRoom + 1, shownRepoPage * repoRoom + shownRepos.length, dirty.length)}
+            </Text>
+            {press('repos:next', '▸', () => update($, repoPage, () => (shownRepoPage + 1) % repoPageCount))}
+          </Box>
         )}
         {!isFolded('repos') && repoState.list.length > 0 && dirty.length === 0 && (
           <Text color={look.ok}>

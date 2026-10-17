@@ -126,7 +126,7 @@ Dazu kommen Dateien, die ein Shell-Kommando in einem Git-Repo angelegt oder geä
 Ist die Liste länger als ihr Platz im Pane, blättert eine Zeile mit zwei Pfeilen und dem Bereich
 (`◂ 6-10 von 11 ▸`) durch die Seiten. Nach der letzten Seite kommt wieder die erste. Ein neuer
 Schreibvorgang bringt die Liste zurück auf Seite 1, weil die gerade geschriebene Datei oben
-steht.
+steht. Drei Dateien bleiben immer sichtbar. Reicht der Platz dafür nicht, scrollt das Pane.
 
 ### Terminal
 
@@ -163,6 +163,8 @@ offen ist.
   Commits hat. Die übrigen bleiben unangetastet, die Meldung am Ende zählt nachgezogene,
   übersprungene und fehlgeschlagene Repos. Weil der Knopf viele Repos auf einmal ändert,
   braucht er einen zweiten Klick.
+- Mehr als sechs Repos mit Änderungen stehen auf Seiten, `◂ 1-6 von 13 ▸` blättert wie bei den
+  Dateien.
 - `[Ordner hinzufügen]` nimmt einen weiteren Ordner dazu, das `×` vor einem Ordner nimmt ihn aus
   der Liste. Bei mehr als einem Ordner stehen die Repos nach Ordner gruppiert.
 - Ist eine Ticket-Adresse gesetzt, wird die Ticketnummer im Branchnamen (`ABC-123` in

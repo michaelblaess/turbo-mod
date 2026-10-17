@@ -384,6 +384,35 @@ test('/turbo repos reads the state of the repos and shows only the open ones', G
   expect((await ui.findAll({ text: /sauber/ })).length).toEqual(0)
 })
 
+test('many open repos are paged six at a time, the arrows wrap around', GERMAN, async ($, on) => {
+  const names = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8']
+  on('store.set', () => ({ value: undefined }))
+  on('clock.now', () => ({ value: 1760000000000 }))
+  on('fs.list', () => ({ value: names.map(name => ({ name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false })) }))
+  on('fs.stat', () => ({ value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }))
+  on('process.run', () => ({
+    value: { exitCode: 0, stdout: STATUS, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  }))
+
+  await $.command.run({ command: 'turbo', args: 'repos /repos' } as never)
+  const ui = await $.ui.mount({
+    ...MOUNT,
+    surface: 'terminal',
+    props: { ...(PANE_PROPS as object), scroll: { offset: 0, bodyRows: 80 } } as never,
+  })
+  expect(await ui.find({ text: /1-6 von 8/ })).toBeDefined()
+  expect((await ui.findAll({ text: /^a[1-8]$/ })).length).toEqual(6)
+
+  await ui.press({ key: 'repos:next' })
+  expect(await ui.find({ text: /7-8 von 8/ })).toBeDefined()
+  expect((await ui.findAll({ text: /^a[1-8]$/ })).length).toEqual(2)
+
+  await ui.press({ key: 'repos:next' })
+  expect(await ui.find({ text: /1-6 von 8/ })).toBeDefined()
+  await ui.press({ key: 'repos:prev' })
+  expect(await ui.find({ text: /7-8 von 8/ })).toBeDefined()
+})
+
 test('/turbo theme switches the color scheme and remembers it', GERMAN, async ($, on) => {
   const stored: Record<string, unknown> = {}
   on('store.set', (_$, e) => {
@@ -438,30 +467,30 @@ test(
       },
     }))
 
-    for (const path of ['/tmp/eins.md', '/tmp/zwei.md', '/tmp/drei.md']) {
+    for (const path of ['/tmp/eins.md', '/tmp/zwei.md', '/tmp/drei.md', '/tmp/vier.md', '/tmp/fuenf.md']) {
       await $.tool.call({ tool: 'Write', file_path: path, content: 'x' } as never)
     }
 
-    // Without a body height the pane counts 30 rows, that leaves room for two files
+    // Without a body height the pane counts 30 rows, the files still keep their minimum of three
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
-    expect(await ui.find({ text: /1-2 von 3/ })).toBeDefined()
-    expect(await ui.find({ text: 'drei.md' })).toBeDefined()
-    expect(await ui.findAll({ text: 'eins.md' })).toEqual([])
+    expect(await ui.find({ text: /1-3 von 5/ })).toBeDefined()
+    expect(await ui.find({ text: 'fuenf.md' })).toBeDefined()
+    expect(await ui.findAll({ text: 'zwei.md' })).toEqual([])
 
     await ui.press({ key: 'files:next' })
-    expect(await ui.find({ text: /3-3 von 3/ })).toBeDefined()
+    expect(await ui.find({ text: /4-5 von 5/ })).toBeDefined()
     expect(await ui.find({ text: 'eins.md' })).toBeDefined()
-    expect(await ui.findAll({ text: 'drei.md' })).toEqual([])
+    expect(await ui.findAll({ text: 'fuenf.md' })).toEqual([])
 
     // After the last page the first one follows, backwards the other way round
     await ui.press({ key: 'files:next' })
-    expect(await ui.find({ text: /1-2 von 3/ })).toBeDefined()
+    expect(await ui.find({ text: /1-3 von 5/ })).toBeDefined()
     await ui.press({ key: 'files:prev' })
-    expect(await ui.find({ text: /3-3 von 3/ })).toBeDefined()
+    expect(await ui.find({ text: /4-5 von 5/ })).toBeDefined()
 
-    await $.tool.call({ tool: 'Write', file_path: '/tmp/vier.md', content: 'x' } as never)
-    expect(await ui.find({ text: /1-2 von 4/ })).toBeDefined()
-    expect(await ui.find({ text: 'vier.md' })).toBeDefined()
+    await $.tool.call({ tool: 'Write', file_path: '/tmp/sechs.md', content: 'x' } as never)
+    expect(await ui.find({ text: /1-3 von 6/ })).toBeDefined()
+    expect(await ui.find({ text: 'sechs.md' })).toBeDefined()
   },
 )
 
@@ -964,18 +993,19 @@ test('a shell call that commits lists its files, a deleted file stays struck thr
   const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
   // A deleted file has no size any more: two files of 1 KB each remain
   expect(await ui.find({ text: /4 Dateien · 2,0 KB/ })).toBeDefined()
-  // Two files fit on a page. The first shows the file deleted by the commit and the untracked new one.
+  // Three files fit on a page: the file deleted by the commit, the untracked new one and the committed one
   expect(await ui.find({ text: /weg\.md/ })).toBeDefined()
   expect(await ui.find({ text: /skript\.md/ })).toBeDefined()
+  expect(await ui.find({ text: /beitrag\.md/ })).toBeDefined()
   expect(await ui.find({ text: /gelöscht/ })).toBeDefined()
   expect(await ui.findAll({ text: /notiz/ })).toEqual([])
 
-  // The second shows the committed file and the one that was in the list before and is gone now
+  // The second shows the one that was in the list before and is gone now
   await ui.press({ key: 'files:next' })
-  expect(await ui.find({ text: /beitrag\.md/ })).toBeDefined()
   expect(await ui.find({ text: /notiz\.md/ })).toBeDefined()
   expect(await ui.find({ text: /gelöscht/ })).toBeDefined()
   expect(await ui.findAll({ text: /weg/ })).toEqual([])
+  expect(await ui.findAll({ text: /beitrag/ })).toEqual([])
   expect(await ui.findAll({ text: /lange da\.md/ })).toEqual([])
 })
 

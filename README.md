@@ -118,7 +118,8 @@ command created or changed in a git repo are listed as well:
 
 When the list is longer than its room in the pane, a row with two arrows and the range
 (`◂ 6-10 of 11 ▸`) pages through it. After the last page the first one follows. A new write
-takes the list back to page one, because the file just written is on top.
+takes the list back to page one, because the file just written is on top. Three files always
+stay visible. If there is no room for them, the pane scrolls.
 
 ### Terminal
 
@@ -154,6 +155,8 @@ open.
   every repo that is behind and has neither changed files nor own commits. The others stay
   untouched, the message at the end counts pulled, skipped and failed repos. Since the button
   changes many repos at once, it needs a second press.
+- More than six repos with changes stand on pages, `◂ 1-6 of 13 ▸` pages through them like the
+  files.
 - `[add folder]` adds another folder, the `×` in front of a folder removes it from the list.
   With more than one folder, the repos are grouped by folder.
 - With a ticket address set, a ticket key in a branch name (`ABC-123` in

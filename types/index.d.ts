@@ -125,6 +125,8 @@ declare module 'claude-code' {
       files: FileEntry[]
       /** Page of the file list that is shown, from 0. A new write goes back to 0. */
       filePage: number
+      /** Page of the dirty repos that is shown, from 0. */
+      repoPage: number
       /** Per widget: true means collapsed. */
       collapsed: Record<string, boolean>
       repos: ReposState
