@@ -151,7 +151,13 @@ declare module 'claude-code' {
       /** Address of a ticket with the placeholder {id}, empty if none is set. */
       ticketUrl: string
       /** Trial run of the quick commands: the commands read, the ticked names, where the dialog went. */
-      pick: { commands: { name: string; description: string }[]; picked: string[]; placed: string }
+      pick: {
+        commands: { name: string; description: string; count: number }[]
+        picked: string[]
+        placed: string
+        filter: string
+        page: number
+      }
     }
   }
 }

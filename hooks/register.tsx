@@ -2,6 +2,7 @@ import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 
 import type { FeedState, FileEntry, HostInfo, RepoEntry, ReposState, TodoItem, TodoState, UsageState } from '../types'
+import { type CommandEntry, countSlashCommands, filterCommands, historyPathIn, sortCommands } from './commands'
 import { demoState } from './demo'
 import type { EffectName } from './effects'
 import { EFFECTS, effectFrame } from './effects'
@@ -142,17 +143,21 @@ const accepted = atom({ plugin: 'turbo-mod', key: 'accepted' } as const, false)
 const ready = atom({ plugin: 'turbo-mod', key: 'ready' } as const, false)
 const armed = atom({ plugin: 'turbo-mod', key: 'armed' } as const, '')
 
-// Trial run for the quick commands: a second pane as a dialog. Nothing is saved yet, the run
-// only shows where the surface places the dialog and how it reacts.
+// Trial run for the quick commands: a second pane as a dialog. Nothing is saved yet.
 const PICK_PANE = 'turbo-befehle'
-const PICK_ROWS = 8
-type PickState = { commands: { name: string; description: string }[]; picked: string[]; placed: string }
+// Lines of the dialog that are no command: the count, the filter, the paging and the close button
+const PICK_FRAME_ROWS = 5
+// They have buttons of their own in the Claude widget, /turbo is this mod itself
+const PICK_HIDDEN = ['compact', 'clear', 'turbo']
+type PickState = { commands: CommandEntry[]; picked: string[]; placed: string; filter: string; page: number }
 const pick = atom(
   { plugin: 'turbo-mod', key: 'pick' } as const,
   {
     commands: [],
     picked: [],
     placed: '',
+    filter: '',
+    page: 0,
   } as PickState,
 )
 const lang = atom({ plugin: 'turbo-mod', key: 'lang' } as const, '')
@@ -965,15 +970,30 @@ export const register: Register = (on, options) => {
     }
 
     if (verb === 'befehle' || verb === 'commands') {
-      const commands = (await $.command.list()).map(one => ({ name: one.name, description: one.description }))
-      await update($, pick, now => ({ ...now, commands }))
+      const home =
+        textOf(await $.env.get('USERPROFILE').catch(() => undefined)) ||
+        textOf(await $.env.get('HOME').catch(() => undefined))
+      // A missing or unreadable history only loses the order, the dialog falls back to the names
+      const history =
+        home.length === 0
+          ? ''
+          : await $.fs
+              .read(historyPathIn(home))
+              .then(content => (typeof content === 'string' ? content : ''))
+              .catch(() => '')
+      const counts = countSlashCommands(history)
+      const commands = (await $.command.list()).map(one => ({
+        name: one.name,
+        description: one.description,
+        count: counts[one.name] ?? 0,
+      }))
+      await update($, pick, now => ({ ...now, commands, filter: '', page: 0 }))
       const opened = await $.ui.open({
         id: PICK_PANE,
         title: 'Befehle wählen (Probelauf)',
         focus: true,
         closeOnEscape: true,
         holdToasts: true,
-        rows: PICK_ROWS + 4,
       })
       const placed = opened.isPlaced ? 'platziert' : `nicht platziert: ${String(opened.reason)}`
       await update($, pick, now => ({ ...now, placed }))
@@ -1847,15 +1867,34 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PICK_PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Text, Button } = elements
+    const Input = 'Input' in elements ? elements.Input : undefined
     const state = await read($, pick)
-    const shown = state.commands.slice(0, PICK_ROWS)
+    // The height of the pane body, in tests the value is missing
+    const rows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30
+    const room = Math.max(3, rows - PICK_FRAME_ROWS)
+    const sorted = filterCommands(sortCommands(state.commands, state.picked, PICK_HIDDEN), state.filter)
+    const pages = Math.max(1, Math.ceil(sorted.length / room))
+    const page = Math.min(state.page, pages - 1)
+    const shown = sorted.slice(page * room, (page + 1) * room)
+    const turn = (to: number) => update($, pick, now => ({ ...now, page: to }))
 
     return (
       <Box flexDirection="column">
         <Text dimColor wrap="truncate-end">
-          {`${state.commands.length} Befehle, davon ${shown.length} gezeigt. Esc schließt.`}
+          {`${sorted.length} Befehle, ${state.picked.length} angehakt. Esc schließt.`}
         </Text>
+        {Input !== undefined && (
+          <Input
+            key="pick:filter"
+            placeholder="Filter"
+            value={state.filter}
+            submitLabel="filtern"
+            onInput={value => update($, pick, now => ({ ...now, filter: value, page: 0 }))}
+            onSubmit={value => update($, pick, now => ({ ...now, filter: value, page: 0 }))}
+          />
+        )}
         {shown.map(command => {
           const isPicked = state.picked.includes(command.name)
 
@@ -1875,13 +1914,29 @@ export const register: Register = (on, options) => {
                   {isPicked ? '[x]' : '[ ]'}
                 </Button>
               </Box>
+              <Box flexShrink={0} width={5}>
+                <Text dimColor>{command.count > 0 ? `${command.count}×` : ''}</Text>
+              </Box>
               <Text wrap="truncate-end">{`/${command.name}  ${command.description}`}</Text>
             </Box>
           )
         })}
-        <Button key="pick:close" plain dimColor onPress={() => $.ui.close({ id: PICK_PANE })}>
-          [schließen]
-        </Button>
+        <Box flexDirection="row" columnGap={2}>
+          {page > 0 && (
+            <Button key="pick:back" plain onPress={() => turn(page - 1)}>
+              [zurück]
+            </Button>
+          )}
+          {pages > 1 && <Text dimColor>{`Seite ${page + 1} von ${pages}`}</Text>}
+          {page < pages - 1 && (
+            <Button key="pick:next" plain onPress={() => turn(page + 1)}>
+              [weiter]
+            </Button>
+          )}
+          <Button key="pick:close" plain dimColor onPress={() => $.ui.close({ id: PICK_PANE })}>
+            [schließen]
+          </Button>
+        </Box>
       </Box>
     )
   })

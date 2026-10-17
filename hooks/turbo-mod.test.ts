@@ -1,4 +1,5 @@
 import { expect, test } from 'claude-code/testing'
+import { countSlashCommands, filterCommands, historyPathIn, sortCommands } from './commands'
 import { demoState } from './demo'
 import { decryptFrame, effectFrame, errorcorrectFrame, wipeFrame } from './effects'
 import { parseFeed } from './feed'
@@ -1218,22 +1219,91 @@ test('the sample data brings invented tasks and writes nothing', async ($, on) =
   expect((await ui.find({ key: 'todo:text:0' }))?.text).toEqual('My real task')
 })
 
-test('trial run: /turbo befehle opens a second pane as a dialog and ticks commands in it', async ($, on) => {
+test('the input history counts the typed slash commands, a broken line is skipped', () => {
+  const history = [
+    JSON.stringify({ display: '/update-skill', timestamp: 1 }),
+    JSON.stringify({ display: '  /update-skill please', timestamp: 2 }),
+    JSON.stringify({ display: '/release', timestamp: 3 }),
+    JSON.stringify({ display: 'a prompt with /update-skill in it', timestamp: 4 }),
+    'not json at all',
+    JSON.stringify({ other: 'field' }),
+    '',
+  ].join('\n')
+  expect(countSlashCommands(history)).toEqual({ 'update-skill': 2, release: 1 })
+  expect(countSlashCommands('')).toEqual({})
+  expect(historyPathIn('C:\\Users\\Sam')).toEqual('C:\\Users\\Sam\\.claude\\history.jsonl')
+})
+
+test('the dialog lists ticked commands first, then by use, then by name, without the hidden ones', () => {
+  const commands = [
+    { name: 'zeta', description: 'Last by name', count: 0 },
+    { name: 'clear', description: 'Built in', count: 63 },
+    { name: 'release', description: 'Release a version', count: 58 },
+    { name: 'alpha', description: 'First by name', count: 0 },
+    { name: 'update-skill', description: 'Save what was learned', count: 170 },
+    { name: 'daily', description: 'Summary for the daily', count: 2 },
+  ]
+  const order = sortCommands(commands, ['daily'], ['clear']).map(one => one.name)
+  expect(order).toEqual(['daily', 'update-skill', 'release', 'alpha', 'zeta'])
+
+  expect(filterCommands(commands, 'RELEASE').map(one => one.name)).toEqual(['release'])
+  expect(filterCommands(commands, 'learned').map(one => one.name)).toEqual(['update-skill'])
+  expect(filterCommands(commands, '  ').length).toEqual(commands.length)
+})
+
+test('trial run: /turbo befehle opens the dialog sorted by use, with filter, pages and ticks', async ($, on) => {
+  const filler = Array.from({ length: 30 }, (_, at) => ({
+    name: `skill-${String(at).padStart(2, '0')}`,
+    description: 'Filler',
+    source: 'skills',
+  }))
+  const history = ['/update-skill', '/update-skill', '/release', '/clear', '/clear', '/clear']
+    .map(display => JSON.stringify({ display }))
+    .join('\n')
   on('store.set', () => ({ value: undefined }))
+  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
+  on('fs.read', (_$, e) => ({ value: e.path.endsWith('history.jsonl') ? history : '' }))
   // The test host has no list of its own, so the test hands one in
-  on('command.list', () => ({ value: [{ name: 'turbo', description: 'Turbo-MOD', source: 'plugin' }] }) as never)
+  on(
+    'command.list',
+    () =>
+      ({
+        value: [
+          ...filler,
+          { name: 'release', description: 'Release a version', source: 'skills' },
+          { name: 'clear', description: 'Clear the conversation', source: 'builtin' },
+          { name: 'turbo', description: 'Turbo-MOD', source: 'plugin' },
+          { name: 'update-skill', description: 'Save what was learned', source: 'skills' },
+        ],
+      }) as never,
+  )
   on('ui.open', () => ({ value: { isPlaced: true } }) as never)
   const main = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
   await main.press({ key: 'notice:accept' })
 
   const answer = await $.command.run({ command: 'turbo', args: 'befehle' } as never)
-  expect(answer.text).toEqual('Probelauf: 1 Befehle gelesen, Dialog platziert.')
+  expect(answer.text).toEqual('Probelauf: 34 Befehle gelesen, Dialog platziert.')
 
   const dialog = await $.ui.mount({ ...MOUNT, requestId: 'turbo-befehle', surface: 'terminal' })
-  expect(await dialog.find({ text: /^\d+ Befehle, davon \d+ gezeigt/ })).toBeDefined()
-  expect((await dialog.find({ key: 'pick:turbo' }))?.text).toEqual('[ ]')
-  await dialog.press({ key: 'pick:turbo' })
-  expect((await dialog.find({ key: 'pick:turbo' }))?.text).toEqual('[x]')
-  await dialog.press({ key: 'pick:turbo' })
-  expect((await dialog.find({ key: 'pick:turbo' }))?.text).toEqual('[ ]')
+  // /clear has its button in the Claude widget and /turbo is the mod itself
+  expect(await dialog.find({ text: /^32 Befehle, 0 angehakt/ })).toBeDefined()
+  expect(await dialog.find({ key: 'pick:clear' })).toBeUndefined()
+  expect(await dialog.find({ key: 'pick:turbo' })).toBeUndefined()
+  const order = (await dialog.findAll({ text: /^\/[a-z0-9-]+ {2}/ })).map(one => one.text.split(' ')[0])
+  expect(order.slice(0, 3)).toEqual(['/update-skill', '/release', '/skill-00'])
+  expect(await dialog.find({ text: '2×' })).toBeDefined()
+
+  // 32 commands do not fit on one page, the last filler is on the second
+  expect(await dialog.find({ key: 'pick:skill-29' })).toBeUndefined()
+  await dialog.press({ key: 'pick:next' })
+  expect(await dialog.find({ key: 'pick:skill-29' })).toBeDefined()
+  await dialog.press({ key: 'pick:back' })
+
+  // A tick moves the command to the top, the filter narrows the list while typing
+  await dialog.press({ key: 'pick:skill-07' })
+  expect((await dialog.find({ key: 'pick:skill-07' }))?.text).toEqual('[x]')
+  const ticked = (await dialog.findAll({ text: /^\/[a-z0-9-]+ {2}/ })).map(one => one.text.split(' ')[0])
+  expect(ticked[0]).toEqual('/skill-07')
+  await dialog.input({ key: 'pick:filter', text: 'release' })
+  expect((await dialog.findAll({ text: /^\/[a-z0-9-]+ {2}/ })).length).toEqual(1)
 })
