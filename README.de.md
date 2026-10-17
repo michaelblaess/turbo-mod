@@ -245,6 +245,26 @@ Zeilen, die keine Aufgabe sind, lässt der Mod stehen. `/turbo todo datei <pfad>
 an einen anderen Ort. Ein Ordner in einem Git-Repo wird abgelehnt, damit die Aufgaben nie in
 einer Historie landen.
 
+### Befehle
+
+Slash-Befehle, die Du oft brauchst, etwa `/daily` oder `/repo-sync`, als Knöpfe im Pane. Der
+Knopf `[Befehle]` neben `/compact` und `/clear` öffnet einen Dialog mit allen Slash-Befehlen, die
+Du gerade ausführen kannst. Die meistgetippten stehen oben, ein Filter grenzt die Liste ein. Ein
+Häkchen legt den Befehl in den Abschnitt Befehle, ein Druck auf seinen Knopf führt ihn aus, als
+hättest Du ihn getippt. Arbeitet Claude gerade, wartet er, bis die Antwort fertig ist.
+
+Die Häkchen stehen in `~/.claude/turbo-mod-commands.md`, ein Befehl je Zeile:
+
+```markdown
+# Schnellbefehle von Turbo-MOD
+
+- /daily
+- /repo-sync
+```
+
+Du kannst die Datei auch von Hand bearbeiten. Ohne Häkchen gibt es den Abschnitt nicht, er nimmt
+der Dateiliste also keinen Platz.
+
 ## Befehle
 
 | Befehl | Wirkung |
@@ -257,6 +277,7 @@ einer Historie landen.
 | `/turbo feed <befehl>` | Widget Neue Tickets einschalten, `aus` schaltet es ab |
 | `/turbo todo <text>` | Aufgabe in die TODO-Liste legen, ohne Text: offene zählen |
 | `/turbo todo datei <pfad>` | Datei der TODO-Liste setzen, ohne Pfad: anzeigen |
+| `/turbo befehle` | Dialog zum Wählen der Schnellbefehle öffnen |
 | `/turbo sprache <de\|en>` | Sprache des Panes und der Antworten |
 | `/turbo leeren` | Liste der Dateien zurücksetzen, die Nummern beginnen wieder bei 1 |
 | `/turbo effekt` | Titeleffekt aus- oder einschalten |
@@ -335,16 +356,21 @@ er nicht, und an einen Server von mir geht nichts.
 - Kontextgröße und Limits, wie Claude Code sie meldet.
 - Einige Umgebungsvariablen, um Terminal und Benutzerordner zu finden, etwa `WT_SESSION`, `TMUX`,
   `KITTY_WINDOW_ID` und `HOME`.
+- Die Liste der Slash-Befehle und die Eingabehistorie `~/.claude/history.jsonl`, nur beim
+  Öffnen des Dialogs für die Schnellbefehle, um die Befehle nach Nutzung zu sortieren. Es
+  zählt nur der Name eines Befehls, nichts sonst von dem, was Du getippt hast.
 
 **Was er schreibt**
 
-- Eine Datei: die TODO-Liste, in der Vorgabe `~/.claude/turbo-mod-todo.md`.
+- Die TODO-Liste, in der Vorgabe `~/.claude/turbo-mod-todo.md`.
+- Die angehakten Schnellbefehle, `~/.claude/turbo-mod-commands.md`.
 - Seine Einstellungen, im Speicher, den Claude Code jedem Mod gibt.
 
 **Slash-Befehle, die er ausführt**
 
 - `/compact` und `/clear`, jeweils erst nach dem zweiten Druck auf den Knopf innerhalb von fünf
   Sekunden.
+- Die angehakten Schnellbefehle, jeder nur, wenn Du seinen Knopf drückst.
 
 Die Links in der Kopfzeile zeigen auf dieses Repo und auf michaelblaess.de. Dein Terminal öffnet
 sie beim Klick, der Mod lädt sie nicht.

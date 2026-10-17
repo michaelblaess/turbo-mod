@@ -2,7 +2,17 @@ import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 
 import type { FeedState, FileEntry, HostInfo, RepoEntry, ReposState, TodoItem, TodoState, UsageState } from '../types'
-import { type CommandEntry, countSlashCommands, filterCommands, historyPathIn, sortCommands } from './commands'
+import {
+  buttonLines,
+  type CommandEntry,
+  commandsPathIn,
+  countSlashCommands,
+  filterCommands,
+  formatCommandFile,
+  historyPathIn,
+  parseCommandFile,
+  sortCommands,
+} from './commands'
 import { demoState } from './demo'
 import type { EffectName } from './effects'
 import { EFFECTS, effectFrame } from './effects'
@@ -143,18 +153,26 @@ const accepted = atom({ plugin: 'turbo-mod', key: 'accepted' } as const, false)
 const ready = atom({ plugin: 'turbo-mod', key: 'ready' } as const, false)
 const armed = atom({ plugin: 'turbo-mod', key: 'armed' } as const, '')
 
-// Trial run for the quick commands: a second pane as a dialog. Nothing is saved yet.
+// The quick commands are ticked in a second pane, a dialog. The ticks live in a Markdown file.
 const PICK_PANE = 'turbo-befehle'
 // Lines of the dialog that are no command: the count, the filter, the paging and the close button
 const PICK_FRAME_ROWS = 5
 // They have buttons of their own in the Claude widget, /turbo is this mod itself
 const PICK_HIDDEN = ['compact', 'clear', 'turbo']
-type PickState = { commands: CommandEntry[]; picked: string[]; placed: string; filter: string; page: number }
+type PickState = {
+  commands: CommandEntry[]
+  picked: string[]
+  path: string
+  placed: string
+  filter: string
+  page: number
+}
 const pick = atom(
   { plugin: 'turbo-mod', key: 'pick' } as const,
   {
     commands: [],
     picked: [],
+    path: '',
     placed: '',
     filter: '',
     page: 0,
@@ -690,6 +708,73 @@ const startTitleLoop = ($: EngineInterface): void => {
  * Brings the session state back from the store, the options and the environment. Runs again
  * whenever the host has dropped the state, which a /clear does without loading the mod anew.
  */
+/** Reads the ticked commands from their file. A missing or unreadable file keeps what is known. */
+const readPicks = async ($: EngineInterface): Promise<void> => {
+  const state = await read($, pick)
+  if (state.path.length === 0) return
+
+  const content = await loadTodoFile($, state.path)
+  if (content === undefined) return
+
+  await update($, pick, now => ({ ...now, picked: parseCommandFile(content) }))
+}
+
+/** Ticks or unticks a command and writes the choice to its file. A failed write shows a toast. */
+const togglePick = async ($: EngineInterface, name: string): Promise<void> => {
+  const state = await update($, pick, now => ({
+    ...now,
+    picked: now.picked.includes(name) ? now.picked.filter(one => one !== name) : [...now.picked, name],
+  }))
+  if (state.path.length === 0) return
+
+  const t = textsFor(await languageNow($))
+  const isWritten = await $.fs
+    .write(state.path, formatCommandFile(state.picked, t.commandsFileHeading))
+    .then(() => true)
+    .catch(() => false)
+  if (!isWritten) $.ui.toast(t.commandsUnwritable)
+}
+
+/** Reads the slash commands and how often they were typed, then opens the dialog to tick them. */
+const openCommandDialog = async ($: EngineInterface): Promise<{ count: number; isPlaced: boolean; reason: string }> => {
+  const home =
+    textOf(await $.env.get('USERPROFILE').catch(() => undefined)) ||
+    textOf(await $.env.get('HOME').catch(() => undefined))
+  // A missing or unreadable history only loses the order, the dialog falls back to the names
+  const history =
+    home.length === 0
+      ? ''
+      : await $.fs
+          .read(historyPathIn(home))
+          .then(content => (typeof content === 'string' ? content : ''))
+          .catch(() => '')
+  const counts = countSlashCommands(history)
+  const commands = (await $.command.list()).map(one => ({
+    name: one.name,
+    description: one.description,
+    count: counts[one.name] ?? 0,
+  }))
+  await update($, pick, now => ({ ...now, commands, filter: '', page: 0 }))
+  await readPicks($)
+  const opened = await $.ui.open({
+    id: PICK_PANE,
+    title: textsFor(await languageNow($)).commandsTitle,
+    focus: true,
+    closeOnEscape: true,
+    holdToasts: true,
+  })
+  const reason = opened.isPlaced ? '' : String(opened.reason)
+  await update($, pick, now => ({ ...now, placed: reason }))
+
+  return { count: commands.length, isPlaced: opened.isPlaced, reason }
+}
+
+/** Runs a ticked command as if it was typed. It waits until Claude is idle. */
+const runQuickCommand = async ($: EngineInterface, name: string): Promise<void> => {
+  const result = await $.command.run({ command: name }).catch(() => undefined)
+  if (result === undefined) $.ui.toast(textsFor(await languageNow($)).hostFailed(`/${name}`))
+}
+
 const restore = async ($: EngineInterface, options: PluginOptions): Promise<void> => {
   // Each step may fail on its own, the rest of the start still runs
   const stored = async (key: string): Promise<string> => textOf(await $.store.get(key).catch(() => undefined))
@@ -701,7 +786,7 @@ const restore = async ($: EngineInterface, options: PluginOptions): Promise<void
       name: COMMAND,
       description: textsFor(language).commandDescription,
       argumentHint:
-        '[todo <text> | theme <name> | repos [remove] <path> | ticket <url> | feed <command> | lang <de|en> | clear | effect | demo]',
+        '[todo <text> | commands | theme <name> | repos [remove] <path> | ticket <url> | feed <command> | lang <de|en> | clear | effect | demo]',
     })
     .catch(() => undefined)
 
@@ -753,6 +838,8 @@ const restore = async ($: EngineInterface, options: PluginOptions): Promise<void
     note: isTracked ? 'in-repo' : '',
   }))
   await readTodos($).catch(() => undefined)
+  await update($, pick, now => ({ ...now, path: home.length > 0 ? commandsPathIn(home) : '' }))
+  await readPicks($).catch(() => undefined)
   // Only ever switches on: a click that came before the end of the start must not be undone
   if ((await stored('accepted')) === 'yes') await update($, accepted, () => true)
   await readUsage($)
@@ -970,35 +1057,9 @@ export const register: Register = (on, options) => {
     }
 
     if (verb === 'befehle' || verb === 'commands') {
-      const home =
-        textOf(await $.env.get('USERPROFILE').catch(() => undefined)) ||
-        textOf(await $.env.get('HOME').catch(() => undefined))
-      // A missing or unreadable history only loses the order, the dialog falls back to the names
-      const history =
-        home.length === 0
-          ? ''
-          : await $.fs
-              .read(historyPathIn(home))
-              .then(content => (typeof content === 'string' ? content : ''))
-              .catch(() => '')
-      const counts = countSlashCommands(history)
-      const commands = (await $.command.list()).map(one => ({
-        name: one.name,
-        description: one.description,
-        count: counts[one.name] ?? 0,
-      }))
-      await update($, pick, now => ({ ...now, commands, filter: '', page: 0 }))
-      const opened = await $.ui.open({
-        id: PICK_PANE,
-        title: 'Befehle wählen (Probelauf)',
-        focus: true,
-        closeOnEscape: true,
-        holdToasts: true,
-      })
-      const placed = opened.isPlaced ? 'platziert' : `nicht platziert: ${String(opened.reason)}`
-      await update($, pick, now => ({ ...now, placed }))
+      const opened = await openCommandDialog($)
 
-      return { text: `Probelauf: ${commands.length} Befehle gelesen, Dialog ${placed}.` }
+      return { text: opened.isPlaced ? t.pickOpened(opened.count) : t.pickNotPlaced(opened.reason) }
     }
 
     if (verb === 'demo') {
@@ -1229,7 +1290,8 @@ export const register: Register = (on, options) => {
     const isFolded = (id: string): boolean => folded[id] ?? false
     // The TODO list starts collapsed while it is empty, so it takes no room from the files
     const isTodoFolded = folded.todo ?? todoState.list.length === 0
-    const foldedNow = (id: string): boolean => (id === 'todo' ? isTodoFolded : (folded[id] ?? id === 'feed'))
+    const foldedNow = (id: string): boolean =>
+      id === 'todo' ? isTodoFolded : id === 'commands' ? isCommandsFolded : (folded[id] ?? id === 'feed')
     const actions = terminalActions(hostInfo, '')
     const dirty = repoState.list.filter(one => !isClean(one))
     const total = list.reduce((sum, one) => sum + (one.isGone === true ? 0 : one.size), 0)
@@ -1258,9 +1320,15 @@ export const register: Register = (on, options) => {
     const doneTodos = todoState.list.length - openTodos
     const todoNote = t.todoNotes[todoState.note] ?? ''
     const todoRows = isTodoFolded ? 2 : 3 + shownTodos.length + (todoState.list.length === 0 ? 1 : 0)
+    const pickState = await read($, pick)
+    // Without a tick there is no section, the button to pick sits next to /compact and /clear
+    const hasPicks = pickState.picked.length > 0
+    const isCommandsFolded = folded.commands ?? false
+    const quickLabels = [...pickState.picked.map(name => `[/${name}]`), `[${t.commandsPick}]`]
+    const commandRows = !hasPicks ? 0 : isCommandsFolded ? 2 : 2 + buttonLines(quickLabels, Math.max(8, columns - 2))
     const fileRoom = Math.max(
       1,
-      Math.floor((rows - 4 - terminalRows - repoRows - sessionRows - feedRows - todoRows - 7) / 4),
+      Math.floor((rows - 4 - terminalRows - repoRows - sessionRows - feedRows - todoRows - commandRows - 7) / 4),
     )
     // The list is paged instead of scrolled, so the other widgets stay where they are
     const pageCount = Math.max(1, Math.ceil(list.length / fileRoom))
@@ -1350,6 +1418,7 @@ export const register: Register = (on, options) => {
           if (id === 'feed' && wasFolded && ((await read($, feed)) ?? NO_FEED).checkedAt === 0) await refreshFeed($)
           // The file may have been edited by hand in the meantime
           if (id === 'todo' && wasFolded) await readTodos($)
+          if (id === 'commands' && wasFolded) await readPicks($)
         })}
         <Text bold color={look.accent}>
           {label}
@@ -1823,6 +1892,17 @@ export const register: Register = (on, options) => {
           </Box>
         )}
 
+        {hasPicks && rule}
+        {hasPicks && head('commands', t.commands, '')}
+        {hasPicks && !isCommandsFolded && (
+          <Box flexDirection="column" marginLeft={2}>
+            <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+              {pickState.picked.map(name => press(`quick:${name}`, `/${name}`, () => runQuickCommand($, name)))}
+              {press('quick:pick', t.commandsPick, () => openCommandDialog($), true)}
+            </Box>
+          </Box>
+        )}
+
         {rule}
         {head('session', t.session, '', CLAUDE_SHEET)}
         {!isFolded('session') && (
@@ -1859,6 +1939,7 @@ export const register: Register = (on, options) => {
               {press('session:clear', armedKey === 'session:clear' ? t.confirmRun : '/clear', async () => {
                 if (await isSecondPress($, 'session:clear')) await clearSession($)
               })}
+              {!hasPicks && press('session:commands', t.commands, () => openCommandDialog($), true)}
             </Box>
           </Box>
         )}
@@ -1871,6 +1952,7 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = elements
     const Input = 'Input' in elements ? elements.Input : undefined
     const state = await read($, pick)
+    const t = textsFor(await languageNow($))
     // The height of the pane body, in tests the value is missing
     const rows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30
     const room = Math.max(3, rows - PICK_FRAME_ROWS)
@@ -1883,14 +1965,14 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         <Text dimColor wrap="truncate-end">
-          {`${sorted.length} Befehle, ${state.picked.length} angehakt. Esc schließt.`}
+          {t.pickSummary(sorted.length, state.picked.length)}
         </Text>
         {Input !== undefined && (
           <Input
             key="pick:filter"
-            placeholder="Filter"
+            placeholder={t.pickFilter}
             value={state.filter}
-            submitLabel="filtern"
+            submitLabel={t.pickFilterSubmit}
             onInput={value => update($, pick, now => ({ ...now, filter: value, page: 0 }))}
             onSubmit={value => update($, pick, now => ({ ...now, filter: value, page: 0 }))}
           />
@@ -1901,16 +1983,7 @@ export const register: Register = (on, options) => {
           return (
             <Box flexDirection="row" columnGap={1}>
               <Box flexShrink={0}>
-                <Button
-                  key={`pick:${command.name}`}
-                  plain
-                  onPress={() =>
-                    update($, pick, now => ({
-                      ...now,
-                      picked: isPicked ? now.picked.filter(one => one !== command.name) : [...now.picked, command.name],
-                    }))
-                  }
-                >
+                <Button key={`pick:${command.name}`} plain onPress={() => togglePick($, command.name)}>
                   {isPicked ? '[x]' : '[ ]'}
                 </Button>
               </Box>
@@ -1924,17 +1997,17 @@ export const register: Register = (on, options) => {
         <Box flexDirection="row" columnGap={2}>
           {page > 0 && (
             <Button key="pick:back" plain onPress={() => turn(page - 1)}>
-              [zurück]
+              {t.pickBack}
             </Button>
           )}
-          {pages > 1 && <Text dimColor>{`Seite ${page + 1} von ${pages}`}</Text>}
+          {pages > 1 && <Text dimColor>{t.pickPage(page + 1, pages)}</Text>}
           {page < pages - 1 && (
             <Button key="pick:next" plain onPress={() => turn(page + 1)}>
-              [weiter]
+              {t.pickNext}
             </Button>
           )}
           <Button key="pick:close" plain dimColor onPress={() => $.ui.close({ id: PICK_PANE })}>
-            [schließen]
+            {t.pickClose}
           </Button>
         </Box>
       </Box>

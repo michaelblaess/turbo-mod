@@ -235,6 +235,26 @@ The tasks are kept in a Markdown file on your machine, by default
 Lines that are no task stay as they are. `/turbo todo file <path>` moves the list somewhere
 else. A folder inside a git repo is refused, so the tasks never end up in a history.
 
+### Commands
+
+Slash commands you use often, such as `/daily` or `/repo-sync`, as buttons in the pane. The
+button `[Commands]` next to `/compact` and `/clear` opens a dialog with every slash command you
+can run now. The ones you typed most often are on top, a filter narrows the list. A tick puts
+the command into the section Commands, a press on its button runs it as if you had typed it.
+While Claude is still working it waits until the answer is done.
+
+The ticks are kept in `~/.claude/turbo-mod-commands.md`, one command per line:
+
+```markdown
+# Quick commands of Turbo-MOD
+
+- /daily
+- /repo-sync
+```
+
+You can edit the file by hand as well. Without a tick there is no section, so it takes no room
+from the files.
+
 ## Commands
 
 | Command | What it does |
@@ -247,6 +267,7 @@ else. A folder inside a git repo is refused, so the tasks never end up in a hist
 | `/turbo feed <command>` | switch on the widget New tickets, `off` switches it off |
 | `/turbo todo <text>` | add a task to the TODO list, without text: count the open ones |
 | `/turbo todo file <path>` | set the file of the TODO list, without path: show it |
+| `/turbo commands` | open the dialog to pick the quick commands |
 | `/turbo lang <de\|en>` | language of the pane and of the answers |
 | `/turbo clear` | reset the list of files, numbering starts again at 1 |
 | `/turbo effect` | switch the title effect off or on |
@@ -323,15 +344,20 @@ own and sends nothing to a server of mine.
 - Context size and plan limits as Claude Code reports them.
 - A few environment variables to find your terminal and home folder, such as `WT_SESSION`,
   `TMUX`, `KITTY_WINDOW_ID` and `HOME`.
+- The list of slash commands and the input history `~/.claude/history.jsonl`, only while
+  the dialog for the quick commands opens, to sort the commands by use. Only the name of a
+  command counts, nothing else of what you typed.
 
 **What it writes**
 
-- One file: the TODO list, by default `~/.claude/turbo-mod-todo.md`.
+- The TODO list, by default `~/.claude/turbo-mod-todo.md`.
+- The ticked quick commands, `~/.claude/turbo-mod-commands.md`.
 - Its settings, in the store Claude Code gives every mod.
 
 **Slash commands it runs**
 
 - `/compact` and `/clear`, each only after you press its button twice within five seconds.
+- The quick commands you ticked, each only when you press its button.
 
 The links in the header point to this repo and to michaelblaess.de. Your terminal opens them
 when you click, the mod does not load them.

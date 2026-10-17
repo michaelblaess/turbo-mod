@@ -58,6 +58,22 @@ export type Texts = {
   feedNotes: Record<string, string>
   todo: string
   todoOpen: (open: number) => string
+  /** The widget with the ticked slash commands. */
+  commands: string
+  commandsPick: string
+  commandsUnwritable: string
+  /** The heading of the Markdown file that holds the ticks. */
+  commandsFileHeading: string
+  commandsTitle: string
+  pickSummary: (all: number, ticked: number) => string
+  pickFilter: string
+  pickFilterSubmit: string
+  pickBack: string
+  pickNext: string
+  pickPage: (page: number, pages: number) => string
+  pickClose: string
+  pickOpened: (all: number) => string
+  pickNotPlaced: (reason: string) => string
   todoCount: (open: number) => string
   todoEmpty: string
   todoPlaceholder: string
@@ -166,6 +182,20 @@ const DE: Texts = {
   },
   todo: 'TODO',
   todoOpen: open => (open === 0 ? '' : `${open} offen`),
+  commands: 'Befehle',
+  commandsPick: 'wählen',
+  commandsUnwritable: 'Die Auswahl der Befehle ließ sich nicht speichern.',
+  commandsFileHeading: 'Schnellbefehle von Turbo-MOD',
+  commandsTitle: 'Befehle wählen',
+  pickSummary: (all, ticked) => `${all} Befehle, ${ticked} angehakt. Esc schließt.`,
+  pickFilter: 'Filter',
+  pickFilterSubmit: 'filtern',
+  pickBack: '[zurück]',
+  pickNext: '[weiter]',
+  pickPage: (page, pages) => `Seite ${page} von ${pages}`,
+  pickClose: '[schließen]',
+  pickOpened: all => `${all} Befehle gelesen, der Dialog ist offen.`,
+  pickNotPlaced: reason => `Der Dialog ließ sich nicht öffnen: ${reason}`,
   todoCount: open => (open === 1 ? '1 Aufgabe offen.' : `${open} Aufgaben offen.`),
   todoEmpty: 'Noch keine Aufgaben.',
   todoPlaceholder: 'Neue Aufgabe',
@@ -294,6 +324,20 @@ const EN: Texts = {
   },
   todo: 'TODO',
   todoOpen: open => (open === 0 ? '' : `${open} open`),
+  commands: 'Commands',
+  commandsPick: 'pick',
+  commandsUnwritable: 'The choice of commands could not be saved.',
+  commandsFileHeading: 'Quick commands of Turbo-MOD',
+  commandsTitle: 'Pick commands',
+  pickSummary: (all, ticked) => `${all} commands, ${ticked} ticked. Esc closes.`,
+  pickFilter: 'Filter',
+  pickFilterSubmit: 'filter',
+  pickBack: '[back]',
+  pickNext: '[next]',
+  pickPage: (page, pages) => `Page ${page} of ${pages}`,
+  pickClose: '[close]',
+  pickOpened: all => `${all} commands read, the dialog is open.`,
+  pickNotPlaced: reason => `The dialog could not be opened: ${reason}`,
   todoCount: open => (open === 1 ? '1 task open.' : `${open} tasks open.`),
   todoEmpty: 'No tasks yet.',
   todoPlaceholder: 'New task',

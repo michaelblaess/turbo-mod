@@ -1,5 +1,14 @@
 import { expect, test } from 'claude-code/testing'
-import { countSlashCommands, filterCommands, historyPathIn, sortCommands } from './commands'
+import {
+  buttonLines,
+  commandsPathIn,
+  countSlashCommands,
+  filterCommands,
+  formatCommandFile,
+  historyPathIn,
+  parseCommandFile,
+  sortCommands,
+} from './commands'
 import { demoState } from './demo'
 import { decryptFrame, effectFrame, errorcorrectFrame, wipeFrame } from './effects'
 import { parseFeed } from './feed'
@@ -1251,7 +1260,7 @@ test('the dialog lists ticked commands first, then by use, then by name, without
   expect(filterCommands(commands, '  ').length).toEqual(commands.length)
 })
 
-test('trial run: /turbo befehle opens the dialog sorted by use, with filter, pages and ticks', async ($, on) => {
+test('/turbo befehle opens the dialog sorted by use, with filter, pages and ticks', GERMAN, async ($, on) => {
   const filler = Array.from({ length: 30 }, (_, at) => ({
     name: `skill-${String(at).padStart(2, '0')}`,
     description: 'Filler',
@@ -1282,7 +1291,7 @@ test('trial run: /turbo befehle opens the dialog sorted by use, with filter, pag
   await main.press({ key: 'notice:accept' })
 
   const answer = await $.command.run({ command: 'turbo', args: 'befehle' } as never)
-  expect(answer.text).toEqual('Probelauf: 34 Befehle gelesen, Dialog platziert.')
+  expect(answer.text).toEqual('34 Befehle gelesen, der Dialog ist offen.')
 
   const dialog = await $.ui.mount({ ...MOUNT, requestId: 'turbo-befehle', surface: 'terminal' })
   // /clear has its button in the Claude widget and /turbo is the mod itself
@@ -1306,4 +1315,107 @@ test('trial run: /turbo befehle opens the dialog sorted by use, with filter, pag
   expect(ticked[0]).toEqual('/skill-07')
   await dialog.input({ key: 'pick:filter', text: 'release' })
   expect((await dialog.findAll({ text: /^\/[a-z0-9-]+ {2}/ })).length).toEqual(1)
+})
+
+test('the file of ticked commands is a Markdown list, written by hand or by the dialog', () => {
+  const file = formatCommandFile(['daily', 'repo-sync'], 'Quick commands of Turbo-MOD')
+  expect(file).toEqual('# Quick commands of Turbo-MOD\n\n- /daily\n- /repo-sync\n')
+  expect(parseCommandFile(file)).toEqual(['daily', 'repo-sync'])
+  // A hand written file may leave out the slash, use stars and repeat itself, prose is ignored
+  expect(parseCommandFile('Meine Befehle\n* release\n- /daily  am Morgen\n- /daily\n')).toEqual(['release', 'daily'])
+  expect(commandsPathIn('C:\\Users\\Sam')).toEqual('C:\\Users\\Sam\\.claude\\turbo-mod-commands.md')
+  expect(commandsPathIn('/home/sam/')).toEqual('/home/sam/.claude/turbo-mod-commands.md')
+})
+
+test('buttonLines counts the lines a wrapping row of buttons takes', () => {
+  expect(buttonLines([], 20)).toEqual(1)
+  expect(buttonLines(['[/daily]', '[pick]'], 20)).toEqual(1)
+  // 8 + 1 + 11 = 20 still fits, the next one wraps
+  expect(buttonLines(['[/daily]', '[/repo-sync]', '[pick]'], 20)).toEqual(2)
+  expect(buttonLines(['[/a-very-long-command-name]'], 10)).toEqual(1)
+})
+
+test(
+  'the widget Befehle shows the ticked commands as buttons, runs them and saves the ticks',
+  GERMAN,
+  async ($, on) => {
+    const disk: Record<string, string> = { '/home/sam/.claude/turbo-mod-commands.md': '# Meine\n\n- /daily\n' }
+    const ran: string[] = []
+    on('store.set', () => ({ value: undefined }))
+    on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
+    // On Windows the host hands the paths on with a drive and backslashes
+    const plain = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
+    on('fs.exists', (_$, e) => ({ value: plain(e.path) in disk }))
+    on('fs.read', (_$, e) => ({ value: disk[plain(e.path)] ?? '' }))
+    on('fs.write', (_$, e) => {
+      disk[plain(e.path)] = e.text
+
+      return { value: undefined }
+    })
+    on(
+      'command.list',
+      () =>
+        ({
+          value: [
+            { name: 'daily', description: 'Summary for the daily', source: 'skills' },
+            { name: 'repo-sync', description: 'Are my repos current', source: 'skills' },
+          ],
+        }) as never,
+    )
+    on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+    // Beneath the hooks of the mod: what /turbo does not answer lands here
+    on('command.run', (_$, e) => {
+      ran.push(e.command)
+
+      return { value: { text: '' } } as never
+    })
+    // The pane starts the mod only after its first render, a command starts it right away
+    await $.command.run({ command: 'turbo', args: 'lang de' } as never)
+    const main = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    await main.press({ key: 'notice:accept' })
+    expect(await main.find({ text: /^Befehle$/ })).toBeDefined()
+    expect((await main.find({ key: 'quick:daily' }))?.text).toEqual('[/daily]')
+
+    // A press runs the command as if it was typed
+    await main.press({ key: 'quick:daily' })
+    expect(ran).toEqual(['daily'])
+
+    // A tick in the dialog lands in the file and as a button in the pane
+    await main.press({ key: 'quick:pick' })
+    const dialog = await $.ui.mount({ ...MOUNT, requestId: 'turbo-befehle', surface: 'terminal' })
+    expect((await dialog.find({ key: 'pick:daily' }))?.text).toEqual('[x]')
+    await dialog.press({ key: 'pick:repo-sync' })
+    expect(disk['/home/sam/.claude/turbo-mod-commands.md']).toEqual(
+      '# Schnellbefehle von Turbo-MOD\n\n- /daily\n- /repo-sync\n',
+    )
+    expect(await main.find({ key: 'quick:repo-sync' })).toBeDefined()
+
+    // Without a tick the section goes, the button to pick moves next to /compact and /clear
+    await dialog.press({ key: 'pick:daily' })
+    await dialog.press({ key: 'pick:repo-sync' })
+    expect(parseCommandFile(disk['/home/sam/.claude/turbo-mod-commands.md'] ?? 'x')).toEqual([])
+    expect(await main.find({ text: /^Befehle$/ })).toEqual(undefined)
+    expect(await main.find({ key: 'quick:pick' })).toEqual(undefined)
+    expect((await main.find({ key: 'session:commands' }))?.text).toEqual('[Befehle]')
+  },
+)
+
+test('a failed save of the ticks shows a toast', GERMAN, async ($, on) => {
+  const toasts: string[] = []
+  on('store.set', () => ({ value: undefined }))
+  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
+  on('fs.write', () => {
+    throw new Error('read-only')
+  })
+  on('command.list', () => ({ value: [{ name: 'daily', description: 'Daily', source: 'skills' }] }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('ui.toast', (_$, e) => {
+    toasts.push(String(e.text ?? e))
+
+    return { value: undefined } as never
+  })
+  await $.command.run({ command: 'turbo', args: 'befehle' } as never)
+  const dialog = await $.ui.mount({ ...MOUNT, requestId: 'turbo-befehle', surface: 'terminal' })
+  await dialog.press({ key: 'pick:daily' })
+  expect(toasts.some(one => one.includes('ließ sich nicht speichern'))).toEqual(true)
 })

@@ -5,10 +5,15 @@
 /** The input history below the home folder. Only the first word of a line counts, and only if it starts with a slash. */
 export const HISTORY_FILE = '.claude/history.jsonl'
 
+/** The ticked commands, a Markdown list below the home folder like the TODO list. */
+export const COMMANDS_FILE = '.claude/turbo-mod-commands.md'
+
 /** A slash command as the dialog lists it. */
 export type CommandEntry = { name: string; description: string; count: number }
 
 const SLASH = /^\/([A-Za-z0-9:_-]+)/
+// One command per list item, the slash may be missing when the file was written by hand
+const LISTED = /^\s*[-*]\s+\/?([A-Za-z0-9:_-]+)/
 
 /**
  * Counts how often each slash command was typed. A line that is no JSON or has no text is
@@ -61,10 +66,46 @@ export const filterCommands = (commands: readonly CommandEntry[], filter: string
   )
 }
 
-/** Full path of the input history below the home folder, with the slashes of that folder. */
-export const historyPathIn = (home: string): string => {
+/** The names in the file of ticked commands, in its order and each once. Other lines are ignored. */
+export const parseCommandFile = (content: string): string[] => {
+  const names: string[] = []
+  for (const row of content.split('\n')) {
+    const found = LISTED.exec(row)
+    if (found?.[1] !== undefined && !names.includes(found[1])) names.push(found[1])
+  }
+
+  return names
+}
+
+/** The file of ticked commands: a heading and one list item per command. */
+export const formatCommandFile = (names: readonly string[], heading: string): string =>
+  `# ${heading}\n\n${names.map(name => `- /${name}\n`).join('')}`
+
+/** How many lines a row of buttons takes when it wraps at `width` columns, one column between two. */
+export const buttonLines = (labels: readonly string[], width: number): number => {
+  let lines = 1
+  let used = 0
+  for (const label of labels) {
+    if (used > 0 && used + 1 + label.length > width) {
+      lines += 1
+      used = label.length
+    } else {
+      used += (used > 0 ? 1 : 0) + label.length
+    }
+  }
+
+  return lines
+}
+
+const inHome = (home: string, file: string): string => {
   const base = home.replace(/[\\/]+$/, '')
   const slash = base.includes('\\') ? '\\' : '/'
 
-  return `${base}${slash}${HISTORY_FILE.replace(/\//g, slash)}`
+  return `${base}${slash}${file.replace(/\//g, slash)}`
 }
+
+/** Full path of the input history below the home folder, with the slashes of that folder. */
+export const historyPathIn = (home: string): string => inHome(home, HISTORY_FILE)
+
+/** Full path of the file of ticked commands below the home folder. */
+export const commandsPathIn = (home: string): string => inHome(home, COMMANDS_FILE)
