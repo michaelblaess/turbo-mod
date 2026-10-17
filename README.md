@@ -245,9 +245,9 @@ the pane shows what it plays, like the display of a sports watch:
 - Once RetroAmp has ended, the last track stays dimmed under "last played", without buttons.
 
 Without RetroAmp the section does not appear at all. The mod looks for the file
-`~/.retro-amp/now-playing.json`, which RetroAmp writes while it runs. RetroAmp needs its remote
-control for this, which has not been released yet. While the section is open the mod reads the
-file once a second, otherwise every ten seconds.
+`~/.retro-amp/now-playing.json`, which RetroAmp writes while it runs. This needs RetroAmp 0.36.0 or
+later. While the section is open the mod reads the file once a second, otherwise every ten
+seconds.
 
 ## Commands
 

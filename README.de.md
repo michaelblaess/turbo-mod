@@ -256,9 +256,9 @@ Terminal, zeigt das Pane, was gerade läuft, so ähnlich wie das Display einer S
   Knöpfe.
 
 Ohne RetroAmp erscheint der Abschnitt gar nicht. Der Mod sucht die Datei
-`~/.retro-amp/now-playing.json`, die RetroAmp schreibt, solange es läuft. Dafür braucht RetroAmp
-seine Fernsteuerung, die noch nicht veröffentlicht ist. Ist der Abschnitt aufgeklappt, liest der
-Mod die Datei einmal pro Sekunde, sonst alle zehn Sekunden.
+`~/.retro-amp/now-playing.json`, die RetroAmp schreibt, solange es läuft. Das kann RetroAmp ab
+Version 0.36.0. Ist der Abschnitt aufgeklappt, liest der Mod die Datei einmal pro Sekunde, sonst
+alle zehn Sekunden.
 
 ## Befehle
 
