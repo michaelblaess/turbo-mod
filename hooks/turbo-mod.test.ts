@@ -1,4 +1,14 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
+import {
+  buttonLines,
+  commandsPathIn,
+  countSlashCommands,
+  filterCommands,
+  formatCommandFile,
+  historyPathIn,
+  parseCommandFile,
+  sortCommands,
+} from './commands'
 import { demoState } from './demo'
 import { decryptFrame, effectFrame, errorcorrectFrame, wipeFrame } from './effects'
 import { parseFeed } from './feed'
@@ -18,7 +28,17 @@ import {
   ticketOf,
   workingLabel,
 } from './format'
-import { isClean, parseChanges, parseDiff, parseStatus, pathKey, repoCounts, repoPath, sortRepos } from './git'
+import {
+  isClean,
+  parseChanges,
+  parseDiff,
+  parseStatus,
+  pathKey,
+  repoCounts,
+  repoPath,
+  sortRepos,
+  syncCandidates,
+} from './git'
 import {
   copyFileArgv,
   copyTextArgv,
@@ -33,9 +53,34 @@ import {
   terminalActions,
   whereArgv,
 } from './platform'
+import {
+  controlPathIn,
+  formatPlayTime,
+  isLive,
+  parseNowPlaying,
+  positionAt,
+  STALE_MS,
+  statusPathIn,
+  trackName,
+} from './retroamp'
 import { findLanguage, textsFor } from './texts'
 import { findTheme, lookFor, themeNames } from './theme'
-import { addTodo, changeTodo, clearDoneTodos, fitTodoText, formatTodo, parseTodos, sortTodos, todoPathIn } from './todo'
+import {
+  addTodo,
+  archivePathOf,
+  archiveTodos,
+  changeTodo,
+  clearDoneTodos,
+  dayStamp,
+  exportPathOf,
+  fitTodoText,
+  formatTodo,
+  parseTodos,
+  sortTodos,
+  todoPathIn,
+  todosAsJson,
+  todosAsText,
+} from './todo'
 
 test('formatSize writes German with a comma', () => {
   expect(formatSize(512)).toEqual('512 B')
@@ -374,6 +419,35 @@ test('/turbo repos reads the state of the repos and shows only the open ones', G
   expect((await ui.findAll({ text: /sauber/ })).length).toEqual(0)
 })
 
+test('many open repos are paged six at a time, the arrows wrap around', GERMAN, async ($, on) => {
+  const names = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8']
+  on('store.set', () => ({ value: undefined }))
+  on('clock.now', () => ({ value: 1760000000000 }))
+  on('fs.list', () => ({ value: names.map(name => ({ name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false })) }))
+  on('fs.stat', () => ({ value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }))
+  on('process.run', () => ({
+    value: { exitCode: 0, stdout: STATUS, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  }))
+
+  await $.command.run({ command: 'turbo', args: 'repos /repos' } as never)
+  const ui = await $.ui.mount({
+    ...MOUNT,
+    surface: 'terminal',
+    props: { ...(PANE_PROPS as object), scroll: { offset: 0, bodyRows: 80 } } as never,
+  })
+  expect(await ui.find({ text: /1-6 von 8/ })).toBeDefined()
+  expect((await ui.findAll({ text: /^a[1-8]$/ })).length).toEqual(6)
+
+  await ui.press({ key: 'repos:next' })
+  expect(await ui.find({ text: /7-8 von 8/ })).toBeDefined()
+  expect((await ui.findAll({ text: /^a[1-8]$/ })).length).toEqual(2)
+
+  await ui.press({ key: 'repos:next' })
+  expect(await ui.find({ text: /1-6 von 8/ })).toBeDefined()
+  await ui.press({ key: 'repos:prev' })
+  expect(await ui.find({ text: /7-8 von 8/ })).toBeDefined()
+})
+
 test('/turbo theme switches the color scheme and remembers it', GERMAN, async ($, on) => {
   const stored: Record<string, unknown> = {}
   on('store.set', (_$, e) => {
@@ -428,30 +502,30 @@ test(
       },
     }))
 
-    for (const path of ['/tmp/eins.md', '/tmp/zwei.md', '/tmp/drei.md']) {
+    for (const path of ['/tmp/eins.md', '/tmp/zwei.md', '/tmp/drei.md', '/tmp/vier.md', '/tmp/fuenf.md']) {
       await $.tool.call({ tool: 'Write', file_path: path, content: 'x' } as never)
     }
 
-    // Without a body height the pane counts 30 rows, that leaves room for two files
+    // Without a body height the pane counts 30 rows, the files still keep their minimum of three
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
-    expect(await ui.find({ text: /1-2 von 3/ })).toBeDefined()
-    expect(await ui.find({ text: 'drei.md' })).toBeDefined()
-    expect(await ui.findAll({ text: 'eins.md' })).toEqual([])
+    expect(await ui.find({ text: /1-3 von 5/ })).toBeDefined()
+    expect(await ui.find({ text: 'fuenf.md' })).toBeDefined()
+    expect(await ui.findAll({ text: 'zwei.md' })).toEqual([])
 
     await ui.press({ key: 'files:next' })
-    expect(await ui.find({ text: /3-3 von 3/ })).toBeDefined()
+    expect(await ui.find({ text: /4-5 von 5/ })).toBeDefined()
     expect(await ui.find({ text: 'eins.md' })).toBeDefined()
-    expect(await ui.findAll({ text: 'drei.md' })).toEqual([])
+    expect(await ui.findAll({ text: 'fuenf.md' })).toEqual([])
 
     // After the last page the first one follows, backwards the other way round
     await ui.press({ key: 'files:next' })
-    expect(await ui.find({ text: /1-2 von 3/ })).toBeDefined()
+    expect(await ui.find({ text: /1-3 von 5/ })).toBeDefined()
     await ui.press({ key: 'files:prev' })
-    expect(await ui.find({ text: /3-3 von 3/ })).toBeDefined()
+    expect(await ui.find({ text: /4-5 von 5/ })).toBeDefined()
 
-    await $.tool.call({ tool: 'Write', file_path: '/tmp/vier.md', content: 'x' } as never)
-    expect(await ui.find({ text: /1-2 von 4/ })).toBeDefined()
-    expect(await ui.find({ text: 'vier.md' })).toBeDefined()
+    await $.tool.call({ tool: 'Write', file_path: '/tmp/sechs.md', content: 'x' } as never)
+    expect(await ui.find({ text: /1-3 von 6/ })).toBeDefined()
+    expect(await ui.find({ text: 'sechs.md' })).toBeDefined()
   },
 )
 
@@ -954,18 +1028,19 @@ test('a shell call that commits lists its files, a deleted file stays struck thr
   const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
   // A deleted file has no size any more: two files of 1 KB each remain
   expect(await ui.find({ text: /4 Dateien · 2,0 KB/ })).toBeDefined()
-  // Two files fit on a page. The first shows the file deleted by the commit and the untracked new one.
+  // Three files fit on a page: the file deleted by the commit, the untracked new one and the committed one
   expect(await ui.find({ text: /weg\.md/ })).toBeDefined()
   expect(await ui.find({ text: /skript\.md/ })).toBeDefined()
+  expect(await ui.find({ text: /beitrag\.md/ })).toBeDefined()
   expect(await ui.find({ text: /gelöscht/ })).toBeDefined()
   expect(await ui.findAll({ text: /notiz/ })).toEqual([])
 
-  // The second shows the committed file and the one that was in the list before and is gone now
+  // The second shows the one that was in the list before and is gone now
   await ui.press({ key: 'files:next' })
-  expect(await ui.find({ text: /beitrag\.md/ })).toBeDefined()
   expect(await ui.find({ text: /notiz\.md/ })).toBeDefined()
   expect(await ui.find({ text: /gelöscht/ })).toBeDefined()
   expect(await ui.findAll({ text: /weg/ })).toEqual([])
+  expect(await ui.findAll({ text: /beitrag/ })).toEqual([])
   expect(await ui.findAll({ text: /lange da\.md/ })).toEqual([])
 })
 
@@ -1007,9 +1082,9 @@ test('a shell call that touches dozens of files is a pull or an install and list
 test('the TODO file is read tolerantly and every foreign line stays as it is', () => {
   const content = ['# Ideas', '', '- [ ] Write the notes', '* [x] Old one', 'just a remark', '- [ ] Later'].join('\n')
   expect(parseTodos(content)).toEqual([
-    { line: 2, text: 'Write the notes', isDone: false },
-    { line: 3, text: 'Old one', isDone: true },
-    { line: 5, text: 'Later', isDone: false },
+    { line: 2, text: 'Write the notes', isDone: false, addedOn: '' },
+    { line: 3, text: 'Old one', isDone: true, addedOn: '' },
+    { line: 5, text: 'Later', isDone: false, addedOn: '' },
   ])
   expect(parseTodos('- [ ]   \n- no box\n')).toEqual([])
 
@@ -1018,6 +1093,64 @@ test('the TODO file is read tolerantly and every foreign line stays as it is', (
   expect(added.startsWith('# Ideas\n\n- [ ] Write the notes\n* [x] Old one\njust a remark\n')).toEqual(true)
   expect(addTodo(content, '   ')).toEqual(content)
   expect(addTodo('', 'First')).toEqual('- [ ] First\n')
+})
+
+test('the day a task was noted rides along as a comment and survives ticking and renaming', () => {
+  const content = addTodo('', 'Idea: a dark logo', '2026-10-12')
+  expect(content).toEqual('- [ ] Idea: a dark logo <!-- 2026-10-12 -->\n')
+
+  const [item] = parseTodos(content)
+  if (item === undefined) throw new Error('a task expected')
+  expect(item).toEqual({ line: 0, text: 'Idea: a dark logo', isDone: false, addedOn: '2026-10-12' })
+
+  expect(changeTodo(content, item, now => ({ ...now, isDone: true }))).toEqual(
+    '- [x] Idea: a dark logo <!-- 2026-10-12 -->\n',
+  )
+  expect(changeTodo(content, item, now => ({ ...now, text: 'Idea: a light logo' }))).toEqual(
+    '- [ ] Idea: a light logo <!-- 2026-10-12 -->\n',
+  )
+  // A comment in the middle of the text is part of the text, only one at the end is the day
+  expect(parseTodos('- [ ] a <!-- 2026-10-12 --> b')[0]?.text).toEqual('a <!-- 2026-10-12 --> b')
+  expect(parseTodos('- [ ] a <!-- soon -->')[0]?.addedOn).toEqual('')
+  expect(dayStamp(new Date(2026, 0, 5, 23, 59).getTime())).toEqual('2026-01-05')
+})
+
+test('tidying moves the done tasks into an archive under a heading of the day', () => {
+  const done = parseTodos('- [x] One <!-- 2026-10-01 -->\n- [ ] Open\n- [x] Two\n').filter(one => one.isDone)
+  const first = archiveTodos('', done, '2026-10-16')
+  expect(first).toEqual('## 2026-10-16\n\n- [x] One <!-- 2026-10-01 -->\n- [x] Two\n')
+
+  // A second tidying on the same day joins the heading, the next day starts a new one
+  const later = parseTodos('- [x] Three\n')
+  expect(archiveTodos(first, later, '2026-10-16')).toEqual(`${first}- [x] Three\n`)
+  expect(archiveTodos(first, later, '2026-10-17')).toEqual(`${first}\n## 2026-10-17\n\n- [x] Three\n`)
+  expect(archiveTodos('# By hand', later, '2026-10-17')).toEqual('# By hand\n\n## 2026-10-17\n\n- [x] Three\n')
+  expect(archiveTodos(first, [], '2026-10-17')).toEqual(first)
+
+  // Only the archived ones leave the list, one ticked off in the meantime stays
+  expect(clearDoneTodos('- [x] One\n- [x] Late\n- [ ] Open\n', ['One'])).toEqual('- [x] Late\n- [ ] Open\n')
+
+  expect(archivePathOf('/home/sam/.claude/turbo-mod-todo.md')).toEqual('/home/sam/.claude/turbo-mod-todo-archive.md')
+  expect(exportPathOf('C:\\Users\\Sam\\todo.MD')).toEqual('C:\\Users\\Sam\\todo.json')
+  expect(exportPathOf('/home/sam/todo.txt')).toEqual('/home/sam/todo.txt.json')
+})
+
+test('the list goes out as plain text with the open tasks and as JSON with all of them', () => {
+  const items = parseTodos('# Ideas\n- [ ] One <!-- 2026-10-12 -->\n- [x] Done\n- [ ] Two\n')
+  expect(todosAsText(items)).toEqual('- One\n- Two')
+  expect(todosAsText([])).toEqual('')
+
+  const json = todosAsJson(items, '/home/sam/todo.md', '2026-10-16T19:00:00.000Z')
+  expect(json.endsWith('\n')).toEqual(true)
+  expect(JSON.parse(json)).toEqual({
+    exportedAt: '2026-10-16T19:00:00.000Z',
+    file: '/home/sam/todo.md',
+    tasks: [
+      { text: 'One', isDone: false, addedOn: '2026-10-12' },
+      { text: 'Done', isDone: true, addedOn: null },
+      { text: 'Two', isDone: false, addedOn: null },
+    ],
+  })
 })
 
 test('a task is ticked, renamed and removed by its line', () => {
@@ -1069,30 +1202,54 @@ type TestOn = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) 
 
 /** Answers the file, the environment and git from memory. `tracked` names folders that count as a git repo. */
 const todoHost = (on: TestOn, tracked: string[] = []) => {
-  const disk: { content: string | undefined; path: string; gitDirs: string[]; now: number } = {
+  const disk: {
+    content: string | undefined
+    path: string
+    gitDirs: string[]
+    now: number
+    /** The archive and the export, by path. */
+    files: Record<string, string>
+    /** Paths whose writing fails. */
+    refused: string[]
+    /** Every program the mod started apart from git. */
+    runs: string[][]
+  } = {
     content: undefined,
     path: '',
     gitDirs: [],
     now: new Date(2026, 9, 12, 9, 0, 0).getTime(),
+    files: {},
+    refused: [],
+    runs: [],
   }
-  on('store.set', () => ({ value: undefined }))
-  on('clock.now', () => ({ value: disk.now }))
-  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
-  on('fs.exists', () => ({ value: disk.content !== undefined }))
-  on('fs.read', () => ({ value: disk.content ?? '' }))
-  on('fs.write', (_$, e) => {
-    disk.content = e.text
-    // The test host turns the path into one of its own system
-    disk.path = e.path
+  // The test host turns a path into one of its own system
+  const plain = (path: string): string =>
+    path
       .split('\\')
       .join('/')
       .replace(/^[A-Za-z]:/, '')
+  const isBeside = (path: string): boolean => /(-archive\.md|\.json)$/.test(path)
+  on('store.set', () => ({ value: undefined }))
+  on('clock.now', () => ({ value: disk.now }))
+  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
+  on('fs.exists', (_$, e) => ({
+    value: isBeside(e.path) ? disk.files[plain(e.path)] !== undefined : disk.content !== undefined,
+  }))
+  on('fs.read', (_$, e) => ({ value: isBeside(e.path) ? (disk.files[plain(e.path)] ?? '') : (disk.content ?? '') }))
+  on('fs.write', (_$, e) => {
+    if (disk.refused.includes(plain(e.path))) return { deny: 'disk full' }
+    if (isBeside(e.path)) disk.files[plain(e.path)] = e.text
+    else {
+      disk.content = e.text
+      disk.path = plain(e.path)
+    }
 
     return { value: undefined }
   })
   on('process.run', (_$, e) => {
     const isGit = e.argv[0] === 'git' && e.argv[3] === 'rev-parse'
     if (isGit) disk.gitDirs.push(String(e.argv[2]))
+    else disk.runs.push(e.argv.map(String))
 
     return {
       value: {
@@ -1122,14 +1279,15 @@ test('the widget TODO adds a task from the field and from /turbo todo, ticks it 
   await ui.press({ key: 'todo:add' })
   expect((await ui.findAll({ type: 'Input' })).length).toEqual(1)
   await ui.input({ key: 'todo:input', text: 'Call the vet' })
-  expect(disk.content).toEqual('- [ ] Call the vet\n')
+  // The day comes from the clock of the host, 12 October in this test
+  expect(disk.content).toEqual('- [ ] Call the vet <!-- 2026-10-12 -->\n')
   expect(disk.path).toEqual('/home/sam/.claude/turbo-mod-todo.md')
   expect((await ui.findAll({ type: 'Input' })).length).toEqual(0)
   expect(await ui.find({ text: /^1 open$/ })).toBeDefined()
 
   const answer = await $.command.run({ command: 'turbo', args: 'todo Idea: a dark logo' } as never)
   expect(answer.text).toEqual('Task added: Idea: a dark logo')
-  expect(disk.content).toEqual('- [ ] Call the vet\n- [ ] Idea: a dark logo\n')
+  expect(disk.content).toEqual('- [ ] Call the vet <!-- 2026-10-12 -->\n- [ ] Idea: a dark logo <!-- 2026-10-12 -->\n')
   expect((await $.command.run({ command: 'turbo', args: 'todo' } as never)).text).toEqual('2 tasks open.')
 
   // One press on the text does nothing, a late second one neither
@@ -1143,23 +1301,80 @@ test('the widget TODO adds a task from the field and from /turbo todo, ticks it 
   await ui.press({ key: 'todo:text:0' })
   expect((await ui.findAll({ type: 'Input' })).length).toEqual(1)
   await ui.input({ key: 'todo:input', text: 'Call the vet on Monday' })
-  expect(disk.content).toEqual('- [ ] Call the vet on Monday\n- [ ] Idea: a dark logo\n')
+  // Renaming keeps the day the task was noted
+  expect(disk.content).toEqual(
+    '- [ ] Call the vet on Monday <!-- 2026-10-12 -->\n- [ ] Idea: a dark logo <!-- 2026-10-12 -->\n',
+  )
 
   await ui.press({ key: 'todo:done:0' })
-  expect(disk.content).toEqual('- [x] Call the vet on Monday\n- [ ] Idea: a dark logo\n')
+  expect(disk.content).toEqual(
+    '- [x] Call the vet on Monday <!-- 2026-10-12 -->\n- [ ] Idea: a dark logo <!-- 2026-10-12 -->\n',
+  )
   expect(await ui.find({ text: /^1 open$/ })).toBeDefined()
 
-  // Tidying asks a second time
+  // Tidying asks a second time, then the done task moves into the archive next to the list
   await ui.press({ key: 'todo:tidy' })
-  expect(disk.content).toEqual('- [x] Call the vet on Monday\n- [ ] Idea: a dark logo\n')
+  expect(disk.files).toEqual({})
+  disk.now = new Date(2026, 9, 16, 21, 0, 0).getTime()
   await ui.press({ key: 'todo:tidy' })
-  expect(disk.content).toEqual('- [ ] Idea: a dark logo\n')
+  expect(disk.content).toEqual('- [ ] Idea: a dark logo <!-- 2026-10-12 -->\n')
+  expect(disk.files['/home/sam/.claude/turbo-mod-todo-archive.md']).toEqual(
+    '## 2026-10-16\n\n- [x] Call the vet on Monday <!-- 2026-10-12 -->\n',
+  )
 
-  // Removing asks a second time as well
+  // Removing asks a second time as well, and it removes without an archive
   await ui.press({ key: 'todo:remove:0' })
-  expect(disk.content).toEqual('- [ ] Idea: a dark logo\n')
+  expect(disk.content).toEqual('- [ ] Idea: a dark logo <!-- 2026-10-12 -->\n')
   await ui.press({ key: 'todo:remove:0' })
   expect(disk.content).toEqual('')
+  expect(Object.keys(disk.files)).toEqual(['/home/sam/.claude/turbo-mod-todo-archive.md'])
+})
+
+test('a failed archive keeps the done tasks in the list', async ($, on) => {
+  const disk = todoHost(on)
+  disk.content = '- [x] Done\n- [ ] Open\n'
+  disk.refused.push('/home/sam/.claude/turbo-mod-todo-archive.md')
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await ui.press({ key: 'notice:accept' })
+  await $.command.run({ command: 'turbo', args: 'todo' } as never)
+
+  await ui.press({ key: 'todo:tidy' })
+  await ui.press({ key: 'todo:tidy' })
+  expect(disk.content).toEqual('- [x] Done\n- [ ] Open\n')
+  expect(disk.files).toEqual({})
+})
+
+test('/turbo todo copy puts the open tasks on the clipboard, export writes JSON next to the list', async ($, on) => {
+  const disk = todoHost(on)
+  disk.content = '# Ideas\n- [ ] One <!-- 2026-10-12 -->\n- [x] Done\n- [ ] Two\n'
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await ui.press({ key: 'notice:accept' })
+
+  const copied = await $.command.run({ command: 'turbo', args: 'todo copy' } as never)
+  expect(copied.text).toEqual('2 open tasks are on the clipboard.')
+  expect(disk.runs.some(argv => argv.join(' ').includes('- One\n- Two'))).toEqual(true)
+  // The button in the pane does the same
+  const runsBefore = disk.runs.length
+  await ui.press({ key: 'todo:copy' })
+  expect(disk.runs.length).toEqual(runsBefore + 1)
+
+  const exported = await $.command.run({ command: 'turbo', args: 'todo export' } as never)
+  expect(exported.text).toEqual('3 tasks written as JSON to: /home/sam/.claude/turbo-mod-todo.json')
+  const json = JSON.parse(disk.files['/home/sam/.claude/turbo-mod-todo.json'] ?? '{}')
+  expect(json.tasks).toEqual([
+    { text: 'One', isDone: false, addedOn: '2026-10-12' },
+    { text: 'Done', isDone: true, addedOn: null },
+    { text: 'Two', isDone: false, addedOn: null },
+  ])
+
+  // A task that only starts with the word is still a task, the list itself stays as it was
+  await $.command.run({ command: 'turbo', args: 'todo export the logo for print' } as never)
+  expect(disk.content?.endsWith('- [ ] export the logo for print <!-- 2026-10-12 -->\n')).toEqual(true)
+
+  disk.content = '- [x] Only done\n'
+  expect((await $.command.run({ command: 'turbo', args: 'todo kopieren' } as never)).text).toEqual(
+    'No open task to copy.',
+  )
 })
 
 test('cancel closes the field without writing, and an empty Enter adds nothing', async ($, on) => {
@@ -1216,4 +1431,410 @@ test('the sample data brings invented tasks and writes nothing', async ($, on) =
 
   await $.command.run({ command: 'turbo', args: 'demo' } as never)
   expect((await ui.find({ key: 'todo:text:0' }))?.text).toEqual('My real task')
+})
+
+test('a sync pulls only repos that are behind and clean, the others are skipped', () => {
+  const repo = (name: string, ahead: number, behind: number, changed: number, untracked = 0, isRead = true) => ({
+    root: '/repos',
+    dir: `/repos/${name}`,
+    name,
+    branch: 'main',
+    ahead,
+    behind,
+    changed,
+    untracked,
+    isRead,
+  })
+  const { pull, skipped } = syncCandidates([
+    repo('behind', 0, 2, 0),
+    repo('new-files', 0, 1, 0, 3),
+    repo('current', 0, 0, 0),
+    repo('changed', 0, 1, 2),
+    repo('diverged', 1, 1, 0),
+    repo('unreadable', 0, 1, 0, 0, false),
+  ])
+  expect(pull.map(one => one.name)).toEqual(['behind', 'new-files'])
+  expect(skipped.map(one => one.name)).toEqual(['changed', 'diverged', 'unreadable'])
+})
+
+test('[sync all] fetches every repo, pulls the clean ones behind and counts the rest', async ($, on) => {
+  const git: string[] = []
+  on('store.set', () => ({ value: undefined }))
+  on('clock.now', () => ({ value: 1760000000000 }))
+  on('fs.list', () => ({
+    value: ['clean', 'dirty', 'fresh'].map(name => ({ name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false })),
+  }))
+  on('fs.stat', () => ({ value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }))
+  const pulledDirs: string[] = []
+  on('process.run', (_$, e) => {
+    const dir = String(e.init?.cwd)
+    git.push(`${e.argv[1]} ${dir}`)
+    if (e.argv[1] === 'pull') pulledDirs.push(dir)
+    const behind = dir.endsWith('fresh') || pulledDirs.includes(dir) ? 0 : 2
+    const changes = dir.endsWith('dirty') ? '1 .M N... 100644 100644 100644 a b file.ts\n' : ''
+
+    return {
+      value: {
+        exitCode: 0,
+        stdout: `# branch.head main\n# branch.ab +0 -${behind}\n${changes}`,
+        stderr: '',
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+      },
+    }
+  })
+
+  await $.command.run({ command: 'turbo', args: 'repos /repos' } as never)
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await ui.press({ key: 'notice:accept' })
+
+  // One press only arms the button, nothing reaches git
+  git.length = 0
+  await ui.press({ key: 'repos:sync' })
+  expect(git).toEqual([])
+  expect((await ui.find({ key: 'repos:sync' }))?.text).not.toEqual('[sync all]')
+
+  await ui.press({ key: 'repos:sync' })
+  expect(git.filter(call => call.startsWith('fetch'))).toEqual([
+    'fetch /repos/clean',
+    'fetch /repos/dirty',
+    'fetch /repos/fresh',
+  ])
+  // Only the clean repo behind the server is pulled, the one with changes is skipped
+  expect(git.filter(call => call.startsWith('pull'))).toEqual(['pull /repos/clean'])
+  expect(git[git.length - 1]).toEqual('status /repos/clean')
+  expect((await ui.find({ key: 'repos:sync' }))?.text).toEqual('[sync all]')
+})
+
+const NOW_PLAYING = (fields: Record<string, unknown> = {}): string =>
+  JSON.stringify({
+    version: 1,
+    app: 'retro-amp',
+    running: true,
+    state: 'playing',
+    title: 'Space Oddity',
+    artist: 'David Bowie',
+    album: 'David Bowie',
+    display_name: 'David Bowie - Space Oddity',
+    position_seconds: 60,
+    duration_seconds: 300,
+    updated: 1760000000,
+    commands: ['play_pause', 'play', 'pause', 'next', 'previous', 'stop'],
+    ...fields,
+  })
+
+test('parseNowPlaying takes only the format of retro-amp', () => {
+  const found = parseNowPlaying(NOW_PLAYING())
+  expect(found?.state).toEqual('playing')
+  expect(found?.updatedMs).toEqual(1760000000000)
+  expect(found?.isRunning).toEqual(true)
+  expect(parseNowPlaying(NOW_PLAYING({ app: 'other' }))).toEqual(undefined)
+  expect(parseNowPlaying(NOW_PLAYING({ version: 2 }))).toEqual(undefined)
+  expect(parseNowPlaying('{"app": "retro-amp", ')).toEqual(undefined)
+  expect(parseNowPlaying(NOW_PLAYING({ state: 'exploding' }))?.state).toEqual('stopped')
+})
+
+test('positionAt runs on while a track plays and stops at its end', () => {
+  const playing = parseNowPlaying(NOW_PLAYING()) as NonNullable<ReturnType<typeof parseNowPlaying>>
+  expect(positionAt(playing, 1760000000000 + 7000)).toEqual(67)
+  expect(positionAt(playing, 1760000000000 + 19000)).toEqual(79)
+  expect(positionAt({ ...playing, durationSeconds: 62 }, 1760000000000 + 7000)).toEqual(62)
+  expect(positionAt({ ...playing, state: 'paused' }, 1760000000000 + 7000)).toEqual(60)
+  // Without a fresh writing retro-amp is gone, the time stands still
+  expect(isLive(playing, 1760000000000 + STALE_MS)).toEqual(false)
+  expect(positionAt(playing, 1760000000000 + STALE_MS)).toEqual(60)
+  expect(isLive({ ...playing, isRunning: false }, 1760000000000)).toEqual(false)
+})
+
+test('formatPlayTime and trackName read like the display of a watch', () => {
+  expect(formatPlayTime(0)).toEqual('0:00')
+  expect(formatPlayTime(187.9)).toEqual('3:07')
+  expect(formatPlayTime(3727)).toEqual('1:02:07')
+  const playing = parseNowPlaying(NOW_PLAYING()) as NonNullable<ReturnType<typeof parseNowPlaying>>
+  expect(trackName(playing)).toEqual('David Bowie - Space Oddity')
+  expect(trackName({ ...playing, artist: '', displayName: 'track01' })).toEqual('track01')
+  expect(statusPathIn('C:\\Users\\Sam\\')).toEqual('C:\\Users\\Sam\\.retro-amp\\now-playing.json')
+  expect(controlPathIn('/home/sam')).toEqual('/home/sam/.retro-amp/control')
+})
+
+/** Answers the status file of retro-amp and the control file from memory. */
+const musicHost = (on: TestOn) => {
+  const disk: { status: string | undefined; control: string; controlPath: string } = {
+    status: undefined,
+    control: '',
+    controlPath: '',
+  }
+  on('store.set', () => ({ value: undefined }))
+  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
+  on('ui.panes', () => ({ value: [{ id: 'turbo-mod', isPlaced: true }] }) as never)
+  on('fs.exists', (_$, e) => ({ value: e.path.endsWith('now-playing.json') && disk.status !== undefined }))
+  on('fs.read', () => ({ value: disk.status ?? '' }))
+  on('fs.write', (_$, e) => {
+    disk.control = e.text
+    disk.controlPath = e.path
+      .split('\\')
+      .join('/')
+      .replace(/^[A-Za-z]:/, '')
+
+    return { value: undefined }
+  })
+  on('process.run', () => ({
+    value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  }))
+
+  return disk
+}
+
+test('without the status file of retro-amp the widget does not appear', async ($, on) => {
+  const disk = musicHost(on)
+  const clock = mock.clock(on, { now: 1760000000000 })
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await $.command.run({ command: 'turbo', args: 'todo' } as never)
+  expect(await ui.find({ text: /^retro-amp$/ })).toEqual(undefined)
+  expect(await ui.find({ key: 'music:next' })).toEqual(undefined)
+  // Not even the line that separates it from the next widget
+  const rules = (await ui.findAll({ text: /^─+$/ })).length
+
+  // retro-amp starts later: the slow beat finds it within ten seconds
+  disk.status = NOW_PLAYING({ updated: 1760000009 })
+  await clock.advance(10000)
+  expect(await ui.find({ text: /^retro-amp$/ })).toBeDefined()
+  expect((await ui.findAll({ text: /^─+$/ })).length).toEqual(rules + 1)
+})
+
+test('the widget retro-amp shows the track, lets the time run and sends commands', GERMAN, async ($, on) => {
+  const disk = musicHost(on)
+  const clock = mock.clock(on, { now: 1760000000000 })
+  disk.status = NOW_PLAYING()
+  const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await $.command.run({ command: 'turbo', args: 'todo' } as never)
+  expect(await ui.find({ text: /^retro-amp$/ })).toBeDefined()
+  expect(await ui.find({ text: /▶ läuft/ })).toBeDefined()
+  expect(await ui.find({ text: /^David Bowie - Space Oddity$/ })).toBeDefined()
+  expect(await ui.find({ text: / 1:00 \/ 5:00$/ })).toBeDefined()
+
+  // A second later the timer has read again, the time runs on without a new writing
+  await clock.advance(3000)
+  expect(await ui.find({ text: / 1:03 \/ 5:00$/ })).toBeDefined()
+
+  await ui.press({ key: 'music:next' })
+  expect(disk.control).toEqual('next')
+  expect(disk.controlPath).toEqual('/home/sam/.retro-amp/control')
+  await ui.press({ key: 'music:play_pause' })
+  expect(disk.control).toEqual('play_pause')
+
+  // Right after its start retro-amp has no track: a hint instead of an empty line, no time
+  disk.status = NOW_PLAYING({
+    state: 'stopped',
+    title: '',
+    artist: '',
+    album: '',
+    display_name: '',
+    position_seconds: 0,
+    duration_seconds: 0,
+    updated: 1760000003,
+  })
+  await clock.advance(1000)
+  expect(await ui.find({ text: /^kein Titel geladen$/ })).toBeDefined()
+  expect(await ui.find({ text: / 0:00$/ })).toEqual(undefined)
+  expect(await ui.find({ key: 'music:play_pause' })).toBeDefined()
+
+  // retro-amp has ended: the last track stays, dimmed and without buttons
+  disk.status = NOW_PLAYING({ running: false, state: 'stopped', updated: 1760000003 })
+  await clock.advance(1000)
+  expect(await ui.find({ text: /zuletzt gespielt/ })).toBeDefined()
+  expect(await ui.find({ text: /^David Bowie - Space Oddity$/ })).toBeDefined()
+  expect(await ui.find({ key: 'music:next' })).toEqual(undefined)
+})
+
+test('the input history counts the typed slash commands, a broken line is skipped', () => {
+  const history = [
+    JSON.stringify({ display: '/update-skill', timestamp: 1 }),
+    JSON.stringify({ display: '  /update-skill please', timestamp: 2 }),
+    JSON.stringify({ display: '/release', timestamp: 3 }),
+    JSON.stringify({ display: 'a prompt with /update-skill in it', timestamp: 4 }),
+    'not json at all',
+    JSON.stringify({ other: 'field' }),
+    '',
+  ].join('\n')
+  expect(countSlashCommands(history)).toEqual({ 'update-skill': 2, release: 1 })
+  expect(countSlashCommands('')).toEqual({})
+  expect(historyPathIn('C:\\Users\\Sam')).toEqual('C:\\Users\\Sam\\.claude\\history.jsonl')
+})
+
+test('the dialog lists ticked commands first, then by use, then by name, without the hidden ones', () => {
+  const commands = [
+    { name: 'zeta', description: 'Last by name', count: 0 },
+    { name: 'clear', description: 'Built in', count: 63 },
+    { name: 'release', description: 'Release a version', count: 58 },
+    { name: 'alpha', description: 'First by name', count: 0 },
+    { name: 'update-skill', description: 'Save what was learned', count: 170 },
+    { name: 'daily', description: 'Summary for the daily', count: 2 },
+  ]
+  const order = sortCommands(commands, ['daily'], ['clear']).map(one => one.name)
+  expect(order).toEqual(['daily', 'update-skill', 'release', 'alpha', 'zeta'])
+
+  expect(filterCommands(commands, 'RELEASE').map(one => one.name)).toEqual(['release'])
+  expect(filterCommands(commands, 'learned').map(one => one.name)).toEqual(['update-skill'])
+  expect(filterCommands(commands, '  ').length).toEqual(commands.length)
+})
+
+test('/turbo befehle opens the dialog sorted by use, with filter, pages and ticks', GERMAN, async ($, on) => {
+  const filler = Array.from({ length: 30 }, (_, at) => ({
+    name: `skill-${String(at).padStart(2, '0')}`,
+    description: 'Filler',
+    source: 'skills',
+  }))
+  const history = ['/update-skill', '/update-skill', '/release', '/clear', '/clear', '/clear']
+    .map(display => JSON.stringify({ display }))
+    .join('\n')
+  on('store.set', () => ({ value: undefined }))
+  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
+  on('fs.read', (_$, e) => ({ value: e.path.endsWith('history.jsonl') ? history : '' }))
+  // The test host has no list of its own, so the test hands one in
+  on(
+    'command.list',
+    () =>
+      ({
+        value: [
+          ...filler,
+          { name: 'release', description: 'Release a version', source: 'skills' },
+          { name: 'clear', description: 'Clear the conversation', source: 'builtin' },
+          { name: 'turbo', description: 'Turbo-MOD', source: 'plugin' },
+          { name: 'update-skill', description: 'Save what was learned', source: 'skills' },
+        ],
+      }) as never,
+  )
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  const main = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+  await main.press({ key: 'notice:accept' })
+
+  const answer = await $.command.run({ command: 'turbo', args: 'befehle' } as never)
+  expect(answer.text).toEqual('34 Befehle gelesen, der Dialog ist offen.')
+
+  const dialog = await $.ui.mount({ ...MOUNT, requestId: 'turbo-befehle', surface: 'terminal' })
+  // /clear has its button in the Claude widget and /turbo is the mod itself
+  expect(await dialog.find({ text: /^32 Befehle, 0 angehakt/ })).toBeDefined()
+  expect(await dialog.find({ key: 'pick:clear' })).toBeUndefined()
+  expect(await dialog.find({ key: 'pick:turbo' })).toBeUndefined()
+  const order = (await dialog.findAll({ text: /^\/[a-z0-9-]+ {2}/ })).map(one => one.text.split(' ')[0])
+  expect(order.slice(0, 3)).toEqual(['/update-skill', '/release', '/skill-00'])
+  expect(await dialog.find({ text: '2×' })).toBeDefined()
+
+  // 32 commands do not fit on one page, the last filler is on the second
+  expect(await dialog.find({ key: 'pick:skill-29' })).toBeUndefined()
+  await dialog.press({ key: 'pick:next' })
+  expect(await dialog.find({ key: 'pick:skill-29' })).toBeDefined()
+  await dialog.press({ key: 'pick:back' })
+
+  // A tick moves the command to the top, the filter narrows the list while typing
+  await dialog.press({ key: 'pick:skill-07' })
+  expect((await dialog.find({ key: 'pick:skill-07' }))?.text).toEqual('[x]')
+  const ticked = (await dialog.findAll({ text: /^\/[a-z0-9-]+ {2}/ })).map(one => one.text.split(' ')[0])
+  expect(ticked[0]).toEqual('/skill-07')
+  await dialog.input({ key: 'pick:filter', text: 'release' })
+  expect((await dialog.findAll({ text: /^\/[a-z0-9-]+ {2}/ })).length).toEqual(1)
+})
+
+test('the file of ticked commands is a Markdown list, written by hand or by the dialog', () => {
+  const file = formatCommandFile(['daily', 'repo-sync'], 'Quick commands of Turbo-MOD')
+  expect(file).toEqual('# Quick commands of Turbo-MOD\n\n- /daily\n- /repo-sync\n')
+  expect(parseCommandFile(file)).toEqual(['daily', 'repo-sync'])
+  // A hand written file may leave out the slash, use stars and repeat itself, prose is ignored
+  expect(parseCommandFile('Meine Befehle\n* release\n- /daily  am Morgen\n- /daily\n')).toEqual(['release', 'daily'])
+  expect(commandsPathIn('C:\\Users\\Sam')).toEqual('C:\\Users\\Sam\\.claude\\turbo-mod-commands.md')
+  expect(commandsPathIn('/home/sam/')).toEqual('/home/sam/.claude/turbo-mod-commands.md')
+})
+
+test('buttonLines counts the lines a wrapping row of buttons takes', () => {
+  expect(buttonLines([], 20)).toEqual(1)
+  expect(buttonLines(['[/daily]', '[pick]'], 20)).toEqual(1)
+  // 8 + 1 + 11 = 20 still fits, the next one wraps
+  expect(buttonLines(['[/daily]', '[/repo-sync]', '[pick]'], 20)).toEqual(2)
+  expect(buttonLines(['[/a-very-long-command-name]'], 10)).toEqual(1)
+})
+
+test(
+  'the widget Befehle shows the ticked commands as buttons, runs them and saves the ticks',
+  GERMAN,
+  async ($, on) => {
+    const disk: Record<string, string> = { '/home/sam/.claude/turbo-mod-commands.md': '# Meine\n\n- /daily\n' }
+    const ran: string[] = []
+    on('store.set', () => ({ value: undefined }))
+    on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
+    // On Windows the host hands the paths on with a drive and backslashes
+    const plain = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
+    on('fs.exists', (_$, e) => ({ value: plain(e.path) in disk }))
+    on('fs.read', (_$, e) => ({ value: disk[plain(e.path)] ?? '' }))
+    on('fs.write', (_$, e) => {
+      disk[plain(e.path)] = e.text
+
+      return { value: undefined }
+    })
+    on(
+      'command.list',
+      () =>
+        ({
+          value: [
+            { name: 'daily', description: 'Summary for the daily', source: 'skills' },
+            { name: 'repo-sync', description: 'Are my repos current', source: 'skills' },
+          ],
+        }) as never,
+    )
+    on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+    // Beneath the hooks of the mod: what /turbo does not answer lands here
+    on('command.run', (_$, e) => {
+      ran.push(e.command)
+
+      return { value: { text: '' } } as never
+    })
+    // The pane starts the mod only after its first render, a command starts it right away
+    await $.command.run({ command: 'turbo', args: 'lang de' } as never)
+    const main = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    await main.press({ key: 'notice:accept' })
+    expect(await main.find({ text: /^Befehle$/ })).toBeDefined()
+    expect((await main.find({ key: 'quick:daily' }))?.text).toEqual('[/daily]')
+
+    // A press runs the command as if it was typed
+    await main.press({ key: 'quick:daily' })
+    expect(ran).toEqual(['daily'])
+
+    // A tick in the dialog lands in the file and as a button in the pane
+    await main.press({ key: 'quick:pick' })
+    const dialog = await $.ui.mount({ ...MOUNT, requestId: 'turbo-befehle', surface: 'terminal' })
+    expect((await dialog.find({ key: 'pick:daily' }))?.text).toEqual('[x]')
+    await dialog.press({ key: 'pick:repo-sync' })
+    expect(disk['/home/sam/.claude/turbo-mod-commands.md']).toEqual(
+      '# Schnellbefehle von Turbo-MOD\n\n- /daily\n- /repo-sync\n',
+    )
+    expect(await main.find({ key: 'quick:repo-sync' })).toBeDefined()
+
+    // Without a tick the section goes, the button to pick moves next to /compact and /clear
+    await dialog.press({ key: 'pick:daily' })
+    await dialog.press({ key: 'pick:repo-sync' })
+    expect(parseCommandFile(disk['/home/sam/.claude/turbo-mod-commands.md'] ?? 'x')).toEqual([])
+    expect(await main.find({ text: /^Befehle$/ })).toEqual(undefined)
+    expect(await main.find({ key: 'quick:pick' })).toEqual(undefined)
+    expect((await main.find({ key: 'session:commands' }))?.text).toEqual('[Befehle]')
+  },
+)
+
+test('a failed save of the ticks shows a toast', GERMAN, async ($, on) => {
+  const toasts: string[] = []
+  on('store.set', () => ({ value: undefined }))
+  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/home/sam' : undefined }))
+  on('fs.write', () => {
+    throw new Error('read-only')
+  })
+  on('command.list', () => ({ value: [{ name: 'daily', description: 'Daily', source: 'skills' }] }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('ui.toast', (_$, e) => {
+    toasts.push(String(e.text ?? e))
+
+    return { value: undefined } as never
+  })
+  await $.command.run({ command: 'turbo', args: 'befehle' } as never)
+  const dialog = await $.ui.mount({ ...MOUNT, requestId: 'turbo-befehle', surface: 'terminal' })
+  await dialog.press({ key: 'pick:daily' })
+  expect(toasts.some(one => one.includes('ließ sich nicht speichern'))).toEqual(true)
 })

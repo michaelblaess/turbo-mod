@@ -29,6 +29,9 @@ export type Texts = {
   addFolder: string
   fetchAll: string
   fetching: string
+  syncAll: string
+  syncing: string
+  synced: (pulled: number, skipped: number, failed: number) => string
   pull: string
   pulled: (name: string) => string
   rootRemoved: (root: string) => string
@@ -58,6 +61,30 @@ export type Texts = {
   feedNotes: Record<string, string>
   todo: string
   todoOpen: (open: number) => string
+  music: string
+  /** What retro-amp does right now, by the state of its status file. */
+  musicStates: Record<string, string>
+  /** retro-amp has ended or no longer writes. The track shown is the last one. */
+  musicLast: string
+  /** retro-amp runs, but no track is loaded yet. */
+  musicNoTrack: string
+  musicUnwritable: string
+  /** The widget with the ticked slash commands. */
+  commands: string
+  commandsPick: string
+  commandsUnwritable: string
+  /** The heading of the Markdown file that holds the ticks. */
+  commandsFileHeading: string
+  commandsTitle: string
+  pickSummary: (all: number, ticked: number) => string
+  pickFilter: string
+  pickFilterSubmit: string
+  pickBack: string
+  pickNext: string
+  pickPage: (page: number, pages: number) => string
+  pickClose: string
+  pickOpened: (all: number) => string
+  pickNotPlaced: (reason: string) => string
   todoCount: (open: number) => string
   todoEmpty: string
   todoPlaceholder: string
@@ -70,6 +97,12 @@ export type Texts = {
   todoFileSet: (path: string) => string
   todoInRepo: (path: string) => string
   todoNotes: Record<string, string>
+  todoCopy: string
+  todoCopied: (open: number) => string
+  todoNothingOpen: string
+  todoExported: (path: string, count: number) => string
+  todoExportFailed: (path: string) => string
+  todoArchiveFailed: (path: string) => string
   noticeTitle: string
   notice: string
   accept: string
@@ -136,6 +169,17 @@ const DE: Texts = {
   addFolder: 'Ordner hinzufügen',
   fetchAll: 'alle fetchen',
   fetching: 'fetcht ...',
+  syncAll: 'alle syncen',
+  syncing: 'synct ...',
+  synced: (pulled, skipped, failed) =>
+    [
+      `${pulled} nachgezogen`,
+      skipped > 0 ? `${skipped} übersprungen (eigene Änderungen oder Commits)` : '',
+      failed > 0 ? `${failed} fehlgeschlagen, [pull] am Repo nennt den Grund` : '',
+    ]
+      .filter(part => part.length > 0)
+      .join(', ')
+      .concat('.'),
   pull: 'pull',
   pulled: name => `${name}: auf dem Stand des Servers.`,
   rootRemoved: root => `Repo-Ordner entfernt: ${root}`,
@@ -166,12 +210,31 @@ const DE: Texts = {
   },
   todo: 'TODO',
   todoOpen: open => (open === 0 ? '' : `${open} offen`),
+  music: 'retro-amp',
+  musicStates: { playing: '▶ läuft', paused: '❚❚ Pause', stopped: '■ gestoppt' },
+  musicLast: 'zuletzt gespielt',
+  musicNoTrack: 'kein Titel geladen',
+  musicUnwritable: 'Der Befehl für retro-amp ließ sich nicht schreiben.',
+  commands: 'Befehle',
+  commandsPick: 'wählen',
+  commandsUnwritable: 'Die Auswahl der Befehle ließ sich nicht speichern.',
+  commandsFileHeading: 'Schnellbefehle von Turbo-MOD',
+  commandsTitle: 'Befehle wählen',
+  pickSummary: (all, ticked) => `${all} Befehle, ${ticked} angehakt. Esc schließt.`,
+  pickFilter: 'Filter',
+  pickFilterSubmit: 'filtern',
+  pickBack: '[zurück]',
+  pickNext: '[weiter]',
+  pickPage: (page, pages) => `Seite ${page} von ${pages}`,
+  pickClose: '[schließen]',
+  pickOpened: all => `${all} Befehle gelesen, der Dialog ist offen.`,
+  pickNotPlaced: reason => `Der Dialog ließ sich nicht öffnen: ${reason}`,
   todoCount: open => (open === 1 ? '1 Aufgabe offen.' : `${open} Aufgaben offen.`),
   todoEmpty: 'Noch keine Aufgaben.',
   todoPlaceholder: 'Neue Aufgabe',
   todoSave: 'speichern',
   todoCancel: 'abbrechen',
-  todoTidy: done => `${done} erledigte entfernen`,
+  todoTidy: done => `${done} erledigte archivieren`,
   todoAdded: text => `Aufgabe angelegt: ${text}`,
   todoFailed: 'Die Datei der TODO-Liste ließ sich nicht schreiben.',
   todoFile: path => `Die TODO-Liste liegt in: ${path}`,
@@ -182,6 +245,17 @@ const DE: Texts = {
     'in-repo': 'Die Datei liegt in einem Git-Repo. /turbo todo datei <pfad> setzt einen anderen Ort.',
     unreadable: 'Die Datei ließ sich nicht lesen oder schreiben.',
   },
+  todoCopy: 'kopieren',
+  todoCopied: open =>
+    open === 1
+      ? '1 offene Aufgabe liegt in der Zwischenablage.'
+      : `${open} offene Aufgaben liegen in der Zwischenablage.`,
+  todoNothingOpen: 'Keine offene Aufgabe zum Kopieren.',
+  todoExported: (path, count) =>
+    `${count === 1 ? '1 Aufgabe' : `${count} Aufgaben`} als JSON geschrieben nach: ${path}`,
+  todoExportFailed: path => `Der Export ließ sich nicht schreiben: ${path}`,
+  todoArchiveFailed: path =>
+    `Das Archiv ließ sich nicht schreiben, die erledigten Aufgaben bleiben in der Liste: ${path}`,
   noticeTitle: 'Disclaimer',
   notice:
     'Turbo-MOD startet Programme auf Deinem Rechner, führt auf Knopfdruck git fetch und git pull in Deinen Repos aus und kann einen von Dir eingestellten Befehl starten. Du nutzt den Mod auf eigene Verantwortung und ohne Gewähr, siehe Lizenz (Apache 2.0).',
@@ -202,6 +276,8 @@ const DE: Texts = {
     '/turbo                 Pane ein- oder ausblenden',
     '/turbo todo <text>     Aufgabe anlegen, ohne Text: offene zählen',
     '/turbo todo datei <pfad>  Datei der TODO-Liste setzen, ohne Pfad: anzeigen',
+    '/turbo todo kopieren   offene Aufgaben in die Zwischenablage',
+    '/turbo todo export     ganze Liste als JSON neben die Datei schreiben',
     '/turbo theme <name>    Farbschema wählen, ohne Namen: Liste',
     '/turbo repos <pfad>    Repo-Ordner hinzufügen, ohne Pfad: neu lesen',
     '/turbo repos entfernen <pfad>  Repo-Ordner wieder entfernen',
@@ -264,6 +340,17 @@ const EN: Texts = {
   addFolder: 'add folder',
   fetchAll: 'fetch all',
   fetching: 'fetching ...',
+  syncAll: 'sync all',
+  syncing: 'syncing ...',
+  synced: (pulled, skipped, failed) =>
+    [
+      `${pulled} pulled`,
+      skipped > 0 ? `${skipped} skipped (own changes or commits)` : '',
+      failed > 0 ? `${failed} failed, [pull] at the repo names the reason` : '',
+    ]
+      .filter(part => part.length > 0)
+      .join(', ')
+      .concat('.'),
   pull: 'pull',
   pulled: name => `${name}: up to date with the server.`,
   rootRemoved: root => `Repo folder removed: ${root}`,
@@ -294,12 +381,31 @@ const EN: Texts = {
   },
   todo: 'TODO',
   todoOpen: open => (open === 0 ? '' : `${open} open`),
+  music: 'retro-amp',
+  musicStates: { playing: '▶ playing', paused: '❚❚ paused', stopped: '■ stopped' },
+  musicLast: 'last played',
+  musicNoTrack: 'no track loaded',
+  musicUnwritable: 'The command for retro-amp could not be written.',
+  commands: 'Commands',
+  commandsPick: 'pick',
+  commandsUnwritable: 'The choice of commands could not be saved.',
+  commandsFileHeading: 'Quick commands of Turbo-MOD',
+  commandsTitle: 'Pick commands',
+  pickSummary: (all, ticked) => `${all} commands, ${ticked} ticked. Esc closes.`,
+  pickFilter: 'Filter',
+  pickFilterSubmit: 'filter',
+  pickBack: '[back]',
+  pickNext: '[next]',
+  pickPage: (page, pages) => `Page ${page} of ${pages}`,
+  pickClose: '[close]',
+  pickOpened: all => `${all} commands read, the dialog is open.`,
+  pickNotPlaced: reason => `The dialog could not be opened: ${reason}`,
   todoCount: open => (open === 1 ? '1 task open.' : `${open} tasks open.`),
   todoEmpty: 'No tasks yet.',
   todoPlaceholder: 'New task',
   todoSave: 'save',
   todoCancel: 'cancel',
-  todoTidy: done => `remove ${done} done`,
+  todoTidy: done => `archive ${done} done`,
   todoAdded: text => `Task added: ${text}`,
   todoFailed: 'The file of the TODO list could not be written.',
   todoFile: path => `The TODO list is kept in: ${path}`,
@@ -310,6 +416,12 @@ const EN: Texts = {
     'in-repo': 'The file lies inside a git repo. /turbo todo file <path> sets another place.',
     unreadable: 'The file could not be read or written.',
   },
+  todoCopy: 'copy',
+  todoCopied: open => (open === 1 ? '1 open task is on the clipboard.' : `${open} open tasks are on the clipboard.`),
+  todoNothingOpen: 'No open task to copy.',
+  todoExported: (path, count) => `${count === 1 ? '1 task' : `${count} tasks`} written as JSON to: ${path}`,
+  todoExportFailed: path => `The export could not be written: ${path}`,
+  todoArchiveFailed: path => `The archive could not be written, the done tasks stay in the list: ${path}`,
   noticeTitle: 'Disclaimer',
   notice:
     'Turbo-MOD starts programs on your machine, runs git fetch and git pull in your repos when you press the buttons, and can start a command you have set. You use the mod at your own risk and without warranty, see the license (Apache 2.0).',
@@ -330,6 +442,8 @@ const EN: Texts = {
     '/turbo                  show or hide the pane',
     '/turbo todo <text>      add a task, without text: count the open ones',
     '/turbo todo file <path> set the file of the TODO list, without path: show it',
+    '/turbo todo copy        the open tasks to the clipboard',
+    '/turbo todo export      the whole list as JSON next to the file',
     '/turbo theme <name>     pick a color scheme, without a name: the list',
     '/turbo repos <path>     add a repo folder, without a path: refresh',
     '/turbo repos remove <path>  remove a repo folder again',

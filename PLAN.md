@@ -81,6 +81,53 @@ Code, sie ist "early access" und ändert sich zwischen Versionen.
   `Input` auf jeder Fläche außer der mobilen. Dort fehlt das Plus, `/turbo todo <text>` legt
   die Aufgabe an. Solange die Liste leer ist, bleibt der Abschnitt eingeklappt, damit die
   Dateiliste ihren Platz behält.
+- **Datum, Archiv, Export (Zweig `feature/todo-export`, 16.10.2026).** Eine neue Aufgabe trägt
+  den Tag als `<!-- JJJJ-MM-TT -->` am Zeilenende, so bleibt die Datei von Hand lesbar und alte
+  Zeilen ohne Tag gelten weiter. Aufräumen schreibt erst das Archiv neben der Liste und nimmt
+  danach nur die archivierten Zeilen aus der Liste, ein gescheitertes Schreiben verliert also
+  nichts. Archiv und JSON-Export liegen im Ordner der Liste und erben damit deren Prüfung gegen
+  Git-Repos. `kopieren` und `export` gelten nur als ganzes Argument, damit eine Aufgabe, die mit
+  dem Wort beginnt, eine Aufgabe bleibt. Die Zwischenablage läuft über denselben Befehl wie
+  "Pfad kopieren" bei den Dateien (`copyTextArgv`).
+- **Ideen für spätere Zweige:** das Projekt automatisch an eine Aufgabe hängen (`#turbo-mod`,
+  aus dem Arbeitsordner) mit Filter, eine Aufgabe als Text in die Eingabezeile legen (erst
+  prüfen, ob die Schnittstelle das kann), Suche ab mehr als 12 Einträgen.
+- **retro-amp über zwei Dateien statt über einen Port.** retro-amp schreibt
+  `~/.retro-amp/now-playing.json` und liest ein Befehlswort aus `~/.retro-amp/control`, nach dem
+  Muster seines eigenen Play-Requests für die zweite Instanz. Ein lokaler HTTP-Port hätte sofort
+  reagiert, wäre aber ein offener Port und für die Prüfung im Verzeichnis ein Punkt mehr unter
+  "sends data out". Die Mediensteuerung des Betriebssystems (SMTC, MPRIS) wäre pro System eigen.
+  Der Mod liest einmal pro Sekunde, solange der Abschnitt offen ist, und rechnet die Position
+  zwischen zwei Schreibvorgängen selbst weiter. Ein Stand älter als 20 Sekunden gilt als beendet,
+  so fällt auch ein Absturz auf, nach dem `running` noch auf true steht. Ohne die Datei gibt es
+  den Abschnitt nicht, auch keine Trennlinie.
+
+## Zweige und Releases
+
+Seit dem 12.10.2026 ist der Mod im Plugin-Verzeichnis von Anthropic eingereicht. Das
+Verzeichnis folgt `main` und liest dort etwa alle sechs Stunden neue Commits. Jeder Commit auf
+`main` gilt deshalb als Version, die gescannt wird und bei Nutzern ankommen kann.
+
+- **`main` ist die stabile Linie.** Dort liegt nur, was fertig und geprüft ist. Direkt auf
+  `main` wird nicht committet.
+- **Neue Ideen entstehen auf Feature-Zweigen**, `feature/<kurzname>`, einer je Idee, von
+  `main` abgezweigt. Korrekturen heißen `fix/<kurzname>`.
+- **Feature-Zweige werden gepusht.** Das Verzeichnis sieht nur `main`, ein gepushter Zweig
+  schadet also nicht. Er ist die Sicherung und der Weg auf den anderen Rechner.
+- **Ein Merge nach `main` ist ein Release.** Der Zweig kommt als ein Commit nach `main`
+  (Squash), mit neuer Versionsnummer in `plugin.json` und `register.tsx`. Der Commit bekommt
+  einen Tag `vX.Y.Z`.
+- **Vor dem Merge muss `npm run check` grün sein.** Das fasst Biome, `tsc`,
+  `claude plugin validate` und `claude plugin test` zusammen.
+- **Kleinkram wird gebündelt.** Ein Tippfehler in der README geht mit dem nächsten
+  Feature-Zweig mit und nicht als eigener Commit nach `main`.
+- **Nach dem Merge wird der Zweig gelöscht**, lokal und auf GitHub.
+- **Auf `main` gibt es keinen Force-Push.** Die Historie eines gelisteten Repos lässt sich
+  nicht zurückholen.
+
+Die eigenen Rechner laden den Mod aus dem lokalen Klon. Steht der Klon auf einem
+Feature-Zweig, läuft dort die neue Idee. Den Stand, den Nutzer haben, zeigt `main` nach
+`/reload-plugins`.
 
 ## Offen
 
@@ -89,5 +136,5 @@ Code, sie ist "early access" und ändert sich zwischen Versionen.
 - **Weitere Widgets:** laufende Hintergrundaufgaben, zuletzt benutzte Befehle.
 - **Weitere Effekte.** `print` und `slide` aus retro-text-effects.js lassen sich nach
   demselben Muster nachbauen.
-- **Andere Terminals.** kitty und WezTerm haben eigene Kommandos zum Teilen, die sich neben
-  Windows Terminal und tmux einhängen ließen.
+- **Andere Terminals.** WezTerm hat eigene Kommandos zum Teilen, die sich neben Windows
+  Terminal, tmux und kitty einhängen ließen.

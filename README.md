@@ -89,7 +89,7 @@ columns wide. In a narrower window, type `/turbo`.
 ## First steps
 
 - On the very first start the pane shows a short disclaimer in a frame. Click `[Understood]` once. Until then
-  `[pull]`, `[fetch all]` and the ticket command stay locked, everything else works. The
+  `[pull]`, `[fetch all]`, `[sync all]` and the ticket command stay locked, everything else works. The
   answer is remembered on this machine.
 - Ask Claude to write a file. It shows up under **Files**, newest on top.
 - Click the arrow in front of a heading to fold a widget away.
@@ -118,7 +118,8 @@ command created or changed in a git repo are listed as well:
 
 When the list is longer than its room in the pane, a row with two arrows and the range
 (`◂ 6-10 of 11 ▸`) pages through it. After the last page the first one follows. A new write
-takes the list back to page one, because the file just written is on top.
+takes the list back to page one, because the file just written is on top. Three files always
+stay visible. If there is no room for them, the pane scrolls.
 
 ### Terminal
 
@@ -150,6 +151,12 @@ open.
 - `[>_]` opens a terminal split in the folder of that repo.
 - `[fetch all]` runs `git fetch` in every repo and reads again. Use it to see which repos are
   behind, since reading alone never contacts a server.
+- `[sync all]` first fetches everything like `[fetch all]`, then runs `git pull --ff-only` in
+  every repo that is behind and has neither changed files nor own commits. The others stay
+  untouched, the message at the end counts pulled, skipped and failed repos. Since the button
+  changes many repos at once, it needs a second press.
+- More than six repos with changes stand on pages, `◂ 1-6 of 13 ▸` pages through them like the
+  files.
 - `[add folder]` adds another folder, the `×` in front of a folder removes it from the list.
   With more than one folder, the repos are grouped by folder.
 - With a ticket address set, a ticket key in a branch name (`ABC-123` in
@@ -213,8 +220,14 @@ A plain list for ideas and for things you do not want to forget.
 - `[ ]` ticks a task off, done ones are struck through at the bottom.
 - A double click on the text brings it back into the field for editing.
 - `✕` removes the task after asking once.
-- `[remove N done]` clears everything that is ticked off, after asking once as well.
+- `[archive N done]` moves everything that is ticked off into an archive next to the list,
+  under a heading with the day, after asking once. If the archive cannot be written, everything
+  stays in the list.
+- `[copy]` puts the open tasks on the clipboard as a plain list.
 - `/turbo todo <text>` adds a task without touching the pane.
+- `/turbo todo copy` does the same as the button, `/turbo todo export` writes the whole list as
+  JSON next to the file. Only the bare word counts as a command, `/turbo todo export the logo
+  for print` is a task.
 
 While the list is empty the section stays collapsed. Its head shows the number of open tasks
 even then.
@@ -227,13 +240,52 @@ The tasks are kept in a Markdown file on your machine, by default
 `~/.claude/turbo-mod-todo.md`. You can edit it in any editor:
 
 ```markdown
-- [ ] Write the release notes
+- [ ] Write the release notes <!-- 2026-10-16 -->
 - [ ] Idea: a dark variant of the logo
 - [x] Tidy up the old branches
 ```
 
+A new task gets the day you noted it as a comment at the end of its line. Markdown does not
+show it, renaming and ticking keep it. Lines without a day are just as valid.
+
 Lines that are no task stay as they are. `/turbo todo file <path>` moves the list somewhere
-else. A folder inside a git repo is refused, so the tasks never end up in a history.
+else. A folder inside a git repo is refused, so the tasks never end up in a history. The archive
+and the export lie in the same folder as the list (`turbo-mod-todo-archive.md`,
+`turbo-mod-todo.json`), so the same protection holds for them.
+
+### retro-amp (optional)
+
+If you use [retro-amp](https://github.com/michaelblaess/retro-amp), the terminal music player,
+the pane shows what it plays, like the display of a sports watch:
+
+- Artist and title, the elapsed time as a bar with `1:03 / 5:00` behind it.
+- `[◂◂]` back, `[❚❚]` or `[▶]` pause and play, `[▸▸]` next, `[■]` stop.
+- Once retro-amp has ended, the last track stays dimmed under "last played", without buttons.
+
+Without retro-amp the section does not appear at all. The mod looks for the file
+`~/.retro-amp/now-playing.json`, which retro-amp writes while it runs. This needs retro-amp 0.36.0 or
+later. While the section is open the mod reads the file once a second, otherwise every ten
+seconds.
+
+### Commands
+
+Slash commands you use often, such as `/daily` or `/repo-sync`, as buttons in the pane. The
+button `[Commands]` next to `/compact` and `/clear` opens a dialog with every slash command you
+can run now. The ones you typed most often are on top, a filter narrows the list. A tick puts
+the command into the section Commands, a press on its button runs it as if you had typed it.
+While Claude is still working it waits until the answer is done.
+
+The ticks are kept in `~/.claude/turbo-mod-commands.md`, one command per line:
+
+```markdown
+# Quick commands of Turbo-MOD
+
+- /daily
+- /repo-sync
+```
+
+You can edit the file by hand as well. Without a tick there is no section, so it takes no room
+from the files.
 
 ## Commands
 
@@ -247,6 +299,9 @@ else. A folder inside a git repo is refused, so the tasks never end up in a hist
 | `/turbo feed <command>` | switch on the widget New tickets, `off` switches it off |
 | `/turbo todo <text>` | add a task to the TODO list, without text: count the open ones |
 | `/turbo todo file <path>` | set the file of the TODO list, without path: show it |
+| `/turbo todo copy` | the open tasks to the clipboard |
+| `/turbo todo export` | write the whole list as JSON next to the file |
+| `/turbo commands` | open the dialog to pick the quick commands |
 | `/turbo lang <de\|en>` | language of the pane and of the answers |
 | `/turbo clear` | reset the list of files, numbering starts again at 1 |
 | `/turbo effect` | switch the title effect off or on |
@@ -304,8 +359,8 @@ own and sends nothing to a server of mine.
 
 - `git`, read-only, for the repo list and the file list: `status`, `rev-parse` and `diff`. This
   runs on a timer and after every shell command of the session.
-- `git fetch` and `git pull --ff-only`, only when you press `[fetch all]` or `[pull]`. These two
-  talk to your git remote.
+- `git fetch` and `git pull --ff-only`, only when you press `[fetch all]`, `[sync all]` or
+  `[pull]`. These two talk to your git remote.
 - Your terminal, for the split buttons: `wt.exe` on Windows Terminal, `tmux`, or `kitty @`. On
   Windows, `[Close last pane]` runs a short PowerShell script.
 - The editor you set, when you press the editor button of a file.
@@ -323,15 +378,26 @@ own and sends nothing to a server of mine.
 - Context size and plan limits as Claude Code reports them.
 - A few environment variables to find your terminal and home folder, such as `WT_SESSION`,
   `TMUX`, `KITTY_WINDOW_ID` and `HOME`.
+- `~/.retro-amp/now-playing.json`, if it exists: state, artist, title and time of the track
+  retro-amp plays.
+- The list of slash commands and the input history `~/.claude/history.jsonl`, only while
+  the dialog for the quick commands opens, to sort the commands by use. Only the name of a
+  command counts, nothing else of what you typed.
 
 **What it writes**
 
-- One file: the TODO list, by default `~/.claude/turbo-mod-todo.md`.
+- The TODO list, by default `~/.claude/turbo-mod-todo.md`, and next to it two files that are
+  only made on a button or a command: the archive of the done tasks
+  (`turbo-mod-todo-archive.md`) and the export (`turbo-mod-todo.json`).
+- The ticked quick commands, `~/.claude/turbo-mod-commands.md`.
+- `~/.retro-amp/control`, one word such as `next`, only when you press a button of the
+  retro-amp section. retro-amp reads it and deletes it.
 - Its settings, in the store Claude Code gives every mod.
 
 **Slash commands it runs**
 
 - `/compact` and `/clear`, each only after you press its button twice within five seconds.
+- The quick commands you ticked, each only when you press its button.
 
 The links in the header point to this repo and to michaelblaess.de. Your terminal opens them
 when you click, the mod does not load them.
@@ -360,7 +426,8 @@ when you click, the mod does not load them.
   schemes the buttons therefore sit on a dark patch. With a light terminal and a dark scheme
   a button can be hard to read.
 - Reading the repos never contacts a server. "Ahead" and "behind" reflect your last fetch,
-  only `[pull]` and `[fetch all]` talk to the server. Both wait at most a minute per repo.
+  only `[pull]`, `[fetch all]` and `[sync all]` talk to the server. They wait at most a minute
+  per repo.
 - At most 80 folders below each repo folder are read.
 
 ## For developers

@@ -1,7 +1,28 @@
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 
-import type { FeedState, FileEntry, HostInfo, RepoEntry, ReposState, TodoItem, TodoState, UsageState } from '../types'
+import type {
+  FeedState,
+  FileEntry,
+  HostInfo,
+  MusicState,
+  RepoEntry,
+  ReposState,
+  TodoItem,
+  TodoState,
+  UsageState,
+} from '../types'
+import {
+  buttonLines,
+  type CommandEntry,
+  commandsPathIn,
+  countSlashCommands,
+  filterCommands,
+  formatCommandFile,
+  historyPathIn,
+  parseCommandFile,
+  sortCommands,
+} from './commands'
 import { demoState } from './demo'
 import type { EffectName } from './effects'
 import { EFFECTS, effectFrame } from './effects'
@@ -38,6 +59,7 @@ import {
   repoPath,
   STATUS_ARGV,
   sortRepos,
+  syncCandidates,
   TOP_HEAD_ARGV,
 } from './git'
 import {
@@ -56,13 +78,29 @@ import {
   terminalActions,
   whereArgv,
 } from './platform'
+import type { MusicCommand } from './retroamp'
+import { controlPathIn, formatPlayTime, isLive, parseNowPlaying, positionAt, statusPathIn, trackName } from './retroamp'
 import type { Lang } from './texts'
 import { findLanguage, LANGUAGES, textsFor } from './texts'
 import { findTheme, lookFor, STANDARD, themeNames } from './theme'
-import { addTodo, changeTodo, clearDoneTodos, fitTodoText, parseTodos, sortTodos, todoPathIn } from './todo'
+import {
+  addTodo,
+  archivePathOf,
+  archiveTodos,
+  changeTodo,
+  clearDoneTodos,
+  dayStamp,
+  exportPathOf,
+  fitTodoText,
+  parseTodos,
+  sortTodos,
+  todoPathIn,
+  todosAsJson,
+  todosAsText,
+} from './todo'
 
 // Must match the version in .claude-plugin/plugin.json
-const VERSION = '0.16.0'
+const VERSION = '0.17.0'
 
 const PANE = 'turbo-mod'
 const PANE_TITLE = 'Turbo-MOD'
@@ -124,6 +162,16 @@ const NO_FEED: FeedState = { command: '', list: [], since: '', checkedAt: 0, isB
 const NO_USAGE: UsageState = { measuredAt: 0, tokens: 0, window: 0, limits: [], usd: -1 }
 const NO_TODO: TodoState = { path: '', list: [], editing: -2, checkedAt: 0, note: '' }
 const MAX_TODO_ROWS = 12
+const NO_MUSIC: MusicState = { statusPath: '', controlPath: '', checkedAt: 0 }
+// Once a second while the widget is open, so the time runs like on a watch
+const MUSIC_EVERY_MS = 1000
+// Folded or without retro-amp only every tenth time, enough to notice it starting
+const MUSIC_IDLE_TICKS = 10
+// retro-amp looks for a command every half second, the reading after that shows the result
+const MUSIC_AFTER_COMMAND_MS = 800
+// Dirty repos per page and files that always stay visible, the host scrolls the pane beyond that
+const REPO_PAGE = 6
+const MIN_FILES = 3
 // Key of the text field of the TODO list, there is never more than one
 const TODO_INPUT = 'todo:input'
 // A second press on the same text within this time counts as a double click
@@ -137,16 +185,44 @@ const host = atom({ plugin: 'turbo-mod', key: 'host' } as const, NO_HOST)
 const theme = atom({ plugin: 'turbo-mod', key: 'theme' } as const, STANDARD)
 const title = atom({ plugin: 'turbo-mod', key: 'title' } as const, TITLE)
 const filePage = atom({ plugin: 'turbo-mod', key: 'filePage' } as const, 0)
+const repoPage = atom({ plugin: 'turbo-mod', key: 'repoPage' } as const, 0)
 const pulse = atom({ plugin: 'turbo-mod', key: 'pulse' } as const, 0)
 const accepted = atom({ plugin: 'turbo-mod', key: 'accepted' } as const, false)
 const ready = atom({ plugin: 'turbo-mod', key: 'ready' } as const, false)
 const armed = atom({ plugin: 'turbo-mod', key: 'armed' } as const, '')
+
+// The quick commands are ticked in a second pane, a dialog. The ticks live in a Markdown file.
+const PICK_PANE = 'turbo-befehle'
+// Lines of the dialog that are no command: the count, the filter, the paging and the close button
+const PICK_FRAME_ROWS = 5
+// They have buttons of their own in the Claude widget, /turbo is this mod itself
+const PICK_HIDDEN = ['compact', 'clear', 'turbo']
+type PickState = {
+  commands: CommandEntry[]
+  picked: string[]
+  path: string
+  placed: string
+  filter: string
+  page: number
+}
+const pick = atom(
+  { plugin: 'turbo-mod', key: 'pick' } as const,
+  {
+    commands: [],
+    picked: [],
+    path: '',
+    placed: '',
+    filter: '',
+    page: 0,
+  } as PickState,
+)
 const lang = atom({ plugin: 'turbo-mod', key: 'lang' } as const, '')
 const editorPath = atom({ plugin: 'turbo-mod', key: 'editorPath' } as const, '')
 const usage = atom({ plugin: 'turbo-mod', key: 'usage' } as const, NO_USAGE)
 const ticketUrl = atom({ plugin: 'turbo-mod', key: 'ticketUrl' } as const, '')
 const feed = atom({ plugin: 'turbo-mod', key: 'feed' } as const, NO_FEED)
 const todo = atom({ plugin: 'turbo-mod', key: 'todo' } as const, NO_TODO)
+const music = atom({ plugin: 'turbo-mod', key: 'music' } as const, NO_MUSIC)
 
 // Applies per module load: after a reload the timers are gone and the start runs again
 let isStarted = false
@@ -156,6 +232,8 @@ let isTitleLooping = true
 let lastTextPress = { key: '', at: 0 }
 // While sample data is shown, nothing real may be read or written into the pane
 let isDemo = false
+// True while [sync all] works through the repos, so its button shows the dots and [pull] does not
+let isSyncingAll = false
 let beforeDemo:
   | {
       files: FileEntry[]
@@ -389,6 +467,48 @@ const writeTodos = async ($: EngineInterface, change: (content: string) => strin
   return isWritten
 }
 
+/** Reads the status file of retro-amp. Without the file the widget disappears. */
+const readMusic = async ($: EngineInterface): Promise<void> => {
+  if (isDemo) return
+
+  const state = (await read($, music)) ?? NO_MUSIC
+  if (state.statusPath.length === 0) return
+
+  const isThere = await $.fs.exists(state.statusPath).catch(() => false)
+  const content = isThere
+    ? await $.fs
+        .read(state.statusPath)
+        .then(text => (typeof text === 'string' ? text : undefined))
+        .catch(() => undefined)
+    : undefined
+  const found = content === undefined ? undefined : parseNowPlaying(content)
+  // A file being rewritten that moment keeps the last reading instead of letting the widget flicker
+  if (isThere && found === undefined && state.now !== undefined) return
+
+  const checkedAt = await $.clock.now()
+  await update($, music, now => ({ ...now, now: found, checkedAt }))
+}
+
+/** Leaves one command word for retro-amp and reads again once it had time to act on it. */
+const sendMusic = async ($: EngineInterface, command: MusicCommand): Promise<void> => {
+  const state = (await read($, music)) ?? NO_MUSIC
+  if (state.controlPath.length === 0) return
+
+  const isWritten = await $.fs
+    .write(state.controlPath, command)
+    .then(() => true)
+    .catch(() => false)
+  if (!isWritten) {
+    $.ui.toast(textsFor(await languageNow($)).musicUnwritable)
+
+    return
+  }
+
+  $.clock.after(MUSIC_AFTER_COMMAND_MS, () => {
+    void readMusic($).catch(() => undefined)
+  })
+}
+
 /** Sets the file of the TODO list for this machine. A folder inside a git repo is refused. */
 const setTodoPath = async ($: EngineInterface, path: string): Promise<boolean> => {
   if (await isInRepo($, path)) return false
@@ -432,8 +552,9 @@ const saveTodo = async ($: EngineInterface, item: TodoItem | undefined, value: s
   await update($, todo, now => ({ ...now, editing: -2 }))
   if (value.trim().length === 0) return
 
+  const day = dayStamp(await $.clock.now())
   await writeTodos($, content =>
-    item === undefined ? addTodo(content, value) : changeTodo(content, item, now => ({ ...now, text: value })),
+    item === undefined ? addTodo(content, value, day) : changeTodo(content, item, now => ({ ...now, text: value })),
   )
 }
 
@@ -471,6 +592,85 @@ const run = async ($: EngineInterface, argv: readonly string[], what: string): P
   }
 
   return true
+}
+
+/** The list as it is in the file right now, `undefined` if there is none to work with. */
+const todosNow = async ($: EngineInterface): Promise<{ path: string; items: TodoItem[] } | undefined> => {
+  if (isDemo) return undefined
+
+  const state = (await read($, todo)) ?? NO_TODO
+  if (state.path.length === 0 || state.note === 'in-repo') return undefined
+
+  const content = await loadTodoFile($, state.path)
+  if (content === undefined) {
+    await update($, todo, now => ({ ...now, note: 'unreadable' }))
+
+    return undefined
+  }
+
+  return { path: state.path, items: parseTodos(content) }
+}
+
+/**
+ * Moves the ticked off tasks into the archive next to the list. The list loses them only once the
+ * archive is written, so a failed write loses nothing.
+ */
+const archiveDoneTodos = async ($: EngineInterface): Promise<boolean> => {
+  const now = await todosNow($)
+  const done = now?.items.filter(one => one.isDone) ?? []
+  if (now === undefined || done.length === 0) return false
+
+  const archivePath = archivePathOf(now.path)
+  const archive = await loadTodoFile($, archivePath)
+  const day = dayStamp(await $.clock.now())
+  const isArchived =
+    archive !== undefined &&
+    (await $.fs
+      .write(archivePath, archiveTodos(archive, done, day))
+      .then(() => true)
+      .catch(() => false))
+  if (!isArchived) {
+    $.ui.toast(textsFor(await languageNow($)).todoArchiveFailed(archivePath))
+
+    return false
+  }
+
+  return writeTodos($, content =>
+    clearDoneTodos(
+      content,
+      done.map(one => one.text),
+    ),
+  )
+}
+
+/** Puts the open tasks on the clipboard and returns the message for it. */
+const copyTodos = async ($: EngineInterface): Promise<string> => {
+  const t = textsFor(await languageNow($))
+  const now = await todosNow($)
+  if (now === undefined) return isDemo ? t.demoOn : (t.todoNotes.unreadable ?? '')
+
+  const open = now.items.filter(one => !one.isDone).length
+  if (open === 0) return t.todoNothingOpen
+
+  const hostInfo = await read($, host)
+
+  return (await run($, copyTextArgv(hostInfo, todosAsText(now.items)), t.todoCopy)) ? t.todoCopied(open) : ''
+}
+
+/** Writes the whole list as JSON next to its file and returns the message for it. */
+const exportTodos = async ($: EngineInterface): Promise<string> => {
+  const t = textsFor(await languageNow($))
+  const now = await todosNow($)
+  if (now === undefined) return isDemo ? t.demoOn : (t.todoNotes.unreadable ?? '')
+
+  const path = exportPathOf(now.path)
+  const json = todosAsJson(now.items, now.path, new Date(await $.clock.now()).toISOString())
+  const isWritten = await $.fs
+    .write(path, json)
+    .then(() => true)
+    .catch(() => false)
+
+  return isWritten ? t.todoExported(path, now.items.length) : t.todoExportFailed(path)
 }
 
 /**
@@ -580,6 +780,41 @@ const pullRepo = async ($: EngineInterface, repo: RepoEntry): Promise<void> => {
   }))
 }
 
+/**
+ * Fetches every repo, then pulls fast-forward only those that are behind and clean, one after the
+ * other. A repo with own changes or own commits is skipped, the toast at the end counts all three.
+ */
+const syncAllRepos = async ($: EngineInterface): Promise<void> => {
+  if (isDemo) return
+  if (!(await isAccepted($))) return
+
+  await refreshRepos($, true)
+  const before = await read($, repos)
+  if (before.isBusy || (before.pulling ?? '').length > 0) return
+
+  const t = textsFor(await languageNow($))
+  const { pull, skipped } = syncCandidates(before.list)
+  isSyncingAll = true
+  let pulled = 0
+  let failed = 0
+  for (const repo of pull) {
+    await update($, repos, now => ({ ...now, pulling: repo.dir }))
+    const result = await $.process.run(PULL_ARGV, { cwd: repo.dir, timeoutMs: NET_TIMEOUT_MS }).catch(() => undefined)
+    if (result?.exitCode === 0) pulled += 1
+    else failed += 1
+
+    const after = await readRepo($, repo.root, repo.dir, repo.name)
+    await update($, repos, now => ({
+      ...now,
+      list: sortRepos(now.list.map(one => (one.dir === repo.dir ? after : one))),
+    }))
+  }
+
+  isSyncingAll = false
+  await update($, repos, now => ({ ...now, pulling: '' }))
+  $.ui.toast(t.synced(pulled, skipped.length, failed))
+}
+
 /** Sets the repo folders for this machine, expands the widget and reads. */
 const setReposRoots = async ($: EngineInterface, roots: string[]): Promise<void> => {
   await update($, repos, now => ({ ...now, roots, list: [], checkedAt: 0, note: '' }))
@@ -671,6 +906,73 @@ const startTitleLoop = ($: EngineInterface): void => {
  * Brings the session state back from the store, the options and the environment. Runs again
  * whenever the host has dropped the state, which a /clear does without loading the mod anew.
  */
+/** Reads the ticked commands from their file. A missing or unreadable file keeps what is known. */
+const readPicks = async ($: EngineInterface): Promise<void> => {
+  const state = await read($, pick)
+  if (state.path.length === 0) return
+
+  const content = await loadTodoFile($, state.path)
+  if (content === undefined) return
+
+  await update($, pick, now => ({ ...now, picked: parseCommandFile(content) }))
+}
+
+/** Ticks or unticks a command and writes the choice to its file. A failed write shows a toast. */
+const togglePick = async ($: EngineInterface, name: string): Promise<void> => {
+  const state = await update($, pick, now => ({
+    ...now,
+    picked: now.picked.includes(name) ? now.picked.filter(one => one !== name) : [...now.picked, name],
+  }))
+  if (state.path.length === 0) return
+
+  const t = textsFor(await languageNow($))
+  const isWritten = await $.fs
+    .write(state.path, formatCommandFile(state.picked, t.commandsFileHeading))
+    .then(() => true)
+    .catch(() => false)
+  if (!isWritten) $.ui.toast(t.commandsUnwritable)
+}
+
+/** Reads the slash commands and how often they were typed, then opens the dialog to tick them. */
+const openCommandDialog = async ($: EngineInterface): Promise<{ count: number; isPlaced: boolean; reason: string }> => {
+  const home =
+    textOf(await $.env.get('USERPROFILE').catch(() => undefined)) ||
+    textOf(await $.env.get('HOME').catch(() => undefined))
+  // A missing or unreadable history only loses the order, the dialog falls back to the names
+  const history =
+    home.length === 0
+      ? ''
+      : await $.fs
+          .read(historyPathIn(home))
+          .then(content => (typeof content === 'string' ? content : ''))
+          .catch(() => '')
+  const counts = countSlashCommands(history)
+  const commands = (await $.command.list()).map(one => ({
+    name: one.name,
+    description: one.description,
+    count: counts[one.name] ?? 0,
+  }))
+  await update($, pick, now => ({ ...now, commands, filter: '', page: 0 }))
+  await readPicks($)
+  const opened = await $.ui.open({
+    id: PICK_PANE,
+    title: textsFor(await languageNow($)).commandsTitle,
+    focus: true,
+    closeOnEscape: true,
+    holdToasts: true,
+  })
+  const reason = opened.isPlaced ? '' : String(opened.reason)
+  await update($, pick, now => ({ ...now, placed: reason }))
+
+  return { count: commands.length, isPlaced: opened.isPlaced, reason }
+}
+
+/** Runs a ticked command as if it was typed. It waits until Claude is idle. */
+const runQuickCommand = async ($: EngineInterface, name: string): Promise<void> => {
+  const result = await $.command.run({ command: name }).catch(() => undefined)
+  if (result === undefined) $.ui.toast(textsFor(await languageNow($)).hostFailed(`/${name}`))
+}
+
 const restore = async ($: EngineInterface, options: PluginOptions): Promise<void> => {
   // Each step may fail on its own, the rest of the start still runs
   const stored = async (key: string): Promise<string> => textOf(await $.store.get(key).catch(() => undefined))
@@ -682,7 +984,7 @@ const restore = async ($: EngineInterface, options: PluginOptions): Promise<void
       name: COMMAND,
       description: textsFor(language).commandDescription,
       argumentHint:
-        '[todo <text> | theme <name> | repos [remove] <path> | ticket <url> | feed <command> | lang <de|en> | clear | effect | demo]',
+        '[todo <text> | commands | theme <name> | repos [remove] <path> | ticket <url> | feed <command> | lang <de|en> | clear | effect | demo]',
     })
     .catch(() => undefined)
 
@@ -734,6 +1036,15 @@ const restore = async ($: EngineInterface, options: PluginOptions): Promise<void
     note: isTracked ? 'in-repo' : '',
   }))
   await readTodos($).catch(() => undefined)
+  await update($, music, now => ({
+    ...NO_MUSIC,
+    now: now.now,
+    statusPath: home.length > 0 ? statusPathIn(home) : '',
+    controlPath: home.length > 0 ? controlPathIn(home) : '',
+  }))
+  await readMusic($).catch(() => undefined)
+  await update($, pick, now => ({ ...now, path: home.length > 0 ? commandsPathIn(home) : '' }))
+  await readPicks($).catch(() => undefined)
   // Only ever switches on: a click that came before the end of the start must not be undone
   if ((await stored('accepted')) === 'yes') await update($, accepted, () => true)
   await readUsage($)
@@ -890,6 +1201,16 @@ const startTimers = ($: EngineInterface): void => {
       if (!isFolded && (await isPaneUp($))) await checkFiles($)
     })().catch(() => undefined)
   })
+  let musicTicks = 0
+  $.clock.every(MUSIC_EVERY_MS, () => {
+    void (async () => {
+      musicTicks = (musicTicks + 1) % MUSIC_IDLE_TICKS
+      const state = (await read($, music)) ?? NO_MUSIC
+      const isFolded = (await read($, collapsed)).music ?? false
+      const isWatched = state.now !== undefined && !isFolded
+      if ((isWatched || musicTicks === 0) && (await isPaneUp($))) await readMusic($)
+    })().catch(() => undefined)
+  })
   $.clock.every(REPOS_EVERY_MS, () => {
     void (async () => {
       const isFolded = (await read($, collapsed)).repos ?? false
@@ -948,6 +1269,12 @@ export const register: Register = (on, options) => {
       await $.ui.open({ id: PANE, title: PANE_TITLE, columns: wantedColumns(e.presentation.columns) })
 
       return { text: t.shown(VERSION) }
+    }
+
+    if (verb === 'befehle' || verb === 'commands') {
+      const opened = await openCommandDialog($)
+
+      return { text: opened.isPlaced ? t.pickOpened(opened.count) : t.pickNotPlaced(opened.reason) }
     }
 
     if (verb === 'demo') {
@@ -1034,6 +1361,9 @@ export const register: Register = (on, options) => {
 
       if (isDemo) return { text: t.demoOn }
       if (state.note === 'in-repo') return { text: t.todoInRepo(state.path) }
+      // Only the bare word counts, a task that starts with it is still a task
+      if (/^(kopieren|copy)$/i.test(argument)) return { text: await copyTodos($) }
+      if (/^export$/i.test(argument)) return { text: await exportTodos($) }
 
       await update($, collapsed, now => ({ ...now, todo: false }))
       if (argument.length === 0) {
@@ -1043,8 +1373,10 @@ export const register: Register = (on, options) => {
         return { text: t.todoCount(list.filter(one => !one.isDone).length) }
       }
 
+      const day = dayStamp(await $.clock.now())
+
       return {
-        text: (await writeTodos($, content => addTodo(content, argument))) ? t.todoAdded(argument) : t.todoFailed,
+        text: (await writeTodos($, content => addTodo(content, argument, day))) ? t.todoAdded(argument) : t.todoFailed,
       }
     }
 
@@ -1163,6 +1495,7 @@ export const register: Register = (on, options) => {
     const feedState = (await read($, feed)) ?? NO_FEED
     const todoState = (await read($, todo)) ?? NO_TODO
     const ticketPattern = (await read($, ticketUrl)) ?? ''
+    const musicState = (await read($, music)) ?? NO_MUSIC
     const contextPercent = usageState.window > 0 ? Math.round((usageState.tokens / usageState.window) * 100) : 0
 
     const columns = Math.max(16, e.props.bodyColumns)
@@ -1178,7 +1511,8 @@ export const register: Register = (on, options) => {
     const isFolded = (id: string): boolean => folded[id] ?? false
     // The TODO list starts collapsed while it is empty, so it takes no room from the files
     const isTodoFolded = folded.todo ?? todoState.list.length === 0
-    const foldedNow = (id: string): boolean => (id === 'todo' ? isTodoFolded : (folded[id] ?? id === 'feed'))
+    const foldedNow = (id: string): boolean =>
+      id === 'todo' ? isTodoFolded : id === 'commands' ? isCommandsFolded : (folded[id] ?? id === 'feed')
     const actions = terminalActions(hostInfo, '')
     const dirty = repoState.list.filter(one => !isClean(one))
     const total = list.reduce((sum, one) => sum + (one.isGone === true ? 0 : one.size), 0)
@@ -1186,14 +1520,18 @@ export const register: Register = (on, options) => {
 
     // How many rows the other widgets need, the rest belongs to the files (four rows per file)
     const terminalRows = isFolded('terminal') ? 1 : 3
-    const repoRoom = Math.max(3, Math.floor(rows / 4))
+    const repoRoom = Math.min(REPO_PAGE, Math.max(3, Math.floor(rows / 4)))
+    const repoPageCount = Math.max(1, Math.ceil(dirty.length / repoRoom))
+    const shownRepoPage = Math.min(Math.max(0, await read($, repoPage)), repoPageCount - 1)
     const roots = rootsOf(repoState)
     const pulling = repoState.pulling ?? ''
     // One to three dots in a fixed width, so the button does not change its size
     const step = (await read($, pulse)) ?? 0
     const dots = dotsFor(step)
     const working = (label: string): string => workingLabel(label, step)
-    const repoRows = isFolded('repos') ? 1 : 2 + 2 * roots.length + Math.min(dirty.length, repoRoom)
+    const repoRows = isFolded('repos')
+      ? 1
+      : 2 + 2 * roots.length + Math.min(dirty.length, repoRoom) + (repoPageCount > 1 ? 1 : 0)
     const sessionRows = isFolded('session') ? 1 : 5 + 3 * usageState.limits.length
     // The feed widget exists only with a command and starts collapsed
     const isFeedOn = feedState.command.length > 0
@@ -1207,16 +1545,31 @@ export const register: Register = (on, options) => {
     const doneTodos = todoState.list.length - openTodos
     const todoNote = t.todoNotes[todoState.note] ?? ''
     const todoRows = isTodoFolded ? 2 : 3 + shownTodos.length + (todoState.list.length === 0 ? 1 : 0)
+    // The widget retro-amp exists only where its status file lies
+    const playing = musicState.now
+    const isMusicFolded = folded.music ?? false
+    const isMusicLive = playing !== undefined && isLive(playing, musicState.checkedAt)
+    // Right after its start retro-amp runs without a track, then there is no time to show
+    const hasTrack = playing !== undefined && trackName(playing).length > 0
+    const musicRows = playing === undefined ? 0 : isMusicFolded ? 2 : isMusicLive ? (hasTrack ? 5 : 4) : 3
+    const pickState = await read($, pick)
+    // Without a tick there is no section, the button to pick sits next to /compact and /clear
+    const hasPicks = pickState.picked.length > 0
+    const isCommandsFolded = folded.commands ?? false
+    const quickLabels = [...pickState.picked.map(name => `[/${name}]`), `[${t.commandsPick}]`]
+    const commandRows = !hasPicks ? 0 : isCommandsFolded ? 2 : 2 + buttonLines(quickLabels, Math.max(8, columns - 2))
     const fileRoom = Math.max(
-      1,
-      Math.floor((rows - 4 - terminalRows - repoRows - sessionRows - feedRows - todoRows - 7) / 4),
+      MIN_FILES,
+      Math.floor(
+        (rows - 4 - terminalRows - repoRows - sessionRows - feedRows - todoRows - musicRows - commandRows - 7) / 4,
+      ),
     )
     // The list is paged instead of scrolled, so the other widgets stay where they are
     const pageCount = Math.max(1, Math.ceil(list.length / fileRoom))
     const page = Math.min(Math.max(0, await read($, filePage)), pageCount - 1)
     const shownFiles = list.slice(page * fileRoom, (page + 1) * fileRoom)
     const numberWidth = String(list.reduce((highest, one) => Math.max(highest, one.no), 1)).length
-    const shownRepos = dirty.slice(0, repoRoom)
+    const shownRepos = dirty.slice(shownRepoPage * repoRoom, (shownRepoPage + 1) * repoRoom)
 
     // A button takes no color. On light schemes it therefore sits on a dark ground.
     // Square brackets mark what can be clicked. A single glyph (an arrow, the cross) stays bare.
@@ -1299,6 +1652,8 @@ export const register: Register = (on, options) => {
           if (id === 'feed' && wasFolded && ((await read($, feed)) ?? NO_FEED).checkedAt === 0) await refreshFeed($)
           // The file may have been edited by hand in the meantime
           if (id === 'todo' && wasFolded) await readTodos($)
+          if (id === 'music' && wasFolded) await readMusic($)
+          if (id === 'commands' && wasFolded) await readPicks($)
         })}
         <Text bold color={look.accent}>
           {label}
@@ -1318,6 +1673,25 @@ export const register: Register = (on, options) => {
         {'─'.repeat(Math.max(4, columns - 1))}
       </Text>
     )
+
+    // The elapsed time as a bar with the figures behind it, like the display of a sports watch
+    const musicClock = (now: NonNullable<MusicState['now']>) => {
+      const position = positionAt(now, musicState.checkedAt)
+      const suffix =
+        now.durationSeconds > 0
+          ? ` ${formatPlayTime(position)} / ${formatPlayTime(now.durationSeconds)}`
+          : ` ${formatPlayTime(position)}`
+      const width = Math.max(4, columns - 3 - suffix.length)
+      const filled = now.durationSeconds > 0 ? barCells((position / now.durationSeconds) * 100, width) : 0
+
+      return (
+        <Text wrap="truncate-end" {...ink}>
+          <Text color={look.accent}>{'█'.repeat(filled)}</Text>
+          <Text dimColor>{'█'.repeat(width - filled)}</Text>
+          {suffix}
+        </Text>
+      )
+    }
 
     const meter = (label: string, percent: number, footer: string) => {
       // The figure has a fixed width so that all bars end in the same column
@@ -1585,11 +1959,16 @@ export const register: Register = (on, options) => {
               </Box>
             )
           })}
-        {!isFolded('repos') && dirty.length > shownRepos.length && (
-          <Text dimColor {...ink}>
-            {'  '}
-            {t.more(dirty.length - shownRepos.length)}
-          </Text>
+        {!isFolded('repos') && repoPageCount > 1 && (
+          <Box flexDirection="row" columnGap={1} marginLeft={2}>
+            {press('repos:prev', '◂', () =>
+              update($, repoPage, () => (shownRepoPage + repoPageCount - 1) % repoPageCount),
+            )}
+            <Text dimColor {...ink}>
+              {t.range(shownRepoPage * repoRoom + 1, shownRepoPage * repoRoom + shownRepos.length, dirty.length)}
+            </Text>
+            {press('repos:next', '▸', () => update($, repoPage, () => (shownRepoPage + 1) % repoPageCount))}
+          </Box>
         )}
         {!isFolded('repos') && repoState.list.length > 0 && dirty.length === 0 && (
           <Text color={look.ok}>
@@ -1627,6 +2006,15 @@ export const register: Register = (on, options) => {
                 'repos:fetch',
                 repoState.isFetching ? working(t.fetching) : t.fetchAll,
                 () => refreshRepos($, true),
+                true,
+              )}
+              {/* Pulling changes the working trees of many repos at once, so it needs a second press */}
+              {press(
+                'repos:sync',
+                isSyncingAll ? working(t.syncing) : armedKey === 'repos:sync' ? t.confirmRun : t.syncAll,
+                async () => {
+                  if (await isSecondPress($, 'repos:sync')) await syncAllRepos($)
+                },
                 true,
               )}
               {press('repos:pick', t.addFolder, () => pickReposRoot($), true)}
@@ -1762,13 +2150,67 @@ export const register: Register = (on, options) => {
                     'todo:tidy',
                     armedKey === 'todo:tidy' ? t.confirmRun : t.todoTidy(doneTodos),
                     async () => {
-                      if (await isSecondPress($, 'todo:tidy')) await writeTodos($, clearDoneTodos)
+                      if (await isSecondPress($, 'todo:tidy')) await archiveDoneTodos($)
+                    },
+                    true,
+                  )}
+                {openTodos > 0 &&
+                  todoState.editing === -2 &&
+                  press(
+                    'todo:copy',
+                    t.todoCopy,
+                    async () => {
+                      const message = await copyTodos($)
+                      if (message.length > 0) $.ui.toast(message)
                     },
                     true,
                   )}
                 {press('todo:refresh', t.reread, () => readTodos($), true)}
               </Box>
             )}
+          </Box>
+        )}
+
+        {playing !== undefined && rule}
+        {playing !== undefined &&
+          head('music', t.music, isMusicLive ? (t.musicStates[playing.state] ?? '') : t.musicLast)}
+        {playing !== undefined && !isMusicFolded && (
+          <Box flexDirection="column" marginLeft={2}>
+            {isMusicLive && hasTrack ? (
+              <Text bold wrap="truncate-end" {...ink}>
+                {trackName(playing)}
+              </Text>
+            ) : (
+              <Text dimColor wrap="truncate-end" {...ink}>
+                {hasTrack ? trackName(playing) : t.musicNoTrack}
+              </Text>
+            )}
+            {isMusicLive && hasTrack && musicClock(playing)}
+            {isMusicLive && (
+              <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+                {playing.commands.includes('previous') &&
+                  press('music:previous', '[◂◂]', () => sendMusic($, 'previous'))}
+                {playing.commands.includes('play_pause') &&
+                  press('music:play_pause', playing.state === 'playing' ? '[❚❚]' : '[▶]', () =>
+                    sendMusic($, 'play_pause'),
+                  )}
+                {playing.commands.includes('next') && press('music:next', '[▸▸]', () => sendMusic($, 'next'))}
+                {playing.commands.includes('stop') &&
+                  playing.state !== 'stopped' &&
+                  press('music:stop', '[■]', () => sendMusic($, 'stop'), true)}
+              </Box>
+            )}
+          </Box>
+        )}
+
+        {hasPicks && rule}
+        {hasPicks && head('commands', t.commands, '')}
+        {hasPicks && !isCommandsFolded && (
+          <Box flexDirection="column" marginLeft={2}>
+            <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+              {pickState.picked.map(name => press(`quick:${name}`, `/${name}`, () => runQuickCommand($, name)))}
+              {press('quick:pick', t.commandsPick, () => openCommandDialog($), true)}
+            </Box>
           </Box>
         )}
 
@@ -1808,9 +2250,77 @@ export const register: Register = (on, options) => {
               {press('session:clear', armedKey === 'session:clear' ? t.confirmRun : '/clear', async () => {
                 if (await isSecondPress($, 'session:clear')) await clearSession($)
               })}
+              {!hasPicks && press('session:commands', t.commands, () => openCommandDialog($), true)}
             </Box>
           </Box>
         )}
+      </Box>
+    )
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PICK_PANE }, async ($, e) => {
+    const elements = $.ui.resolve(e)
+    const { Box, Text, Button } = elements
+    const Input = 'Input' in elements ? elements.Input : undefined
+    const state = await read($, pick)
+    const t = textsFor(await languageNow($))
+    // The height of the pane body, in tests the value is missing
+    const rows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30
+    const room = Math.max(3, rows - PICK_FRAME_ROWS)
+    const sorted = filterCommands(sortCommands(state.commands, state.picked, PICK_HIDDEN), state.filter)
+    const pages = Math.max(1, Math.ceil(sorted.length / room))
+    const page = Math.min(state.page, pages - 1)
+    const shown = sorted.slice(page * room, (page + 1) * room)
+    const turn = (to: number) => update($, pick, now => ({ ...now, page: to }))
+
+    return (
+      <Box flexDirection="column">
+        <Text dimColor wrap="truncate-end">
+          {t.pickSummary(sorted.length, state.picked.length)}
+        </Text>
+        {Input !== undefined && (
+          <Input
+            key="pick:filter"
+            placeholder={t.pickFilter}
+            value={state.filter}
+            submitLabel={t.pickFilterSubmit}
+            onInput={value => update($, pick, now => ({ ...now, filter: value, page: 0 }))}
+            onSubmit={value => update($, pick, now => ({ ...now, filter: value, page: 0 }))}
+          />
+        )}
+        {shown.map(command => {
+          const isPicked = state.picked.includes(command.name)
+
+          return (
+            <Box flexDirection="row" columnGap={1}>
+              <Box flexShrink={0}>
+                <Button key={`pick:${command.name}`} plain onPress={() => togglePick($, command.name)}>
+                  {isPicked ? '[x]' : '[ ]'}
+                </Button>
+              </Box>
+              <Box flexShrink={0} width={5}>
+                <Text dimColor>{command.count > 0 ? `${command.count}×` : ''}</Text>
+              </Box>
+              <Text wrap="truncate-end">{`/${command.name}  ${command.description}`}</Text>
+            </Box>
+          )
+        })}
+        <Box flexDirection="row" columnGap={2}>
+          {page > 0 && (
+            <Button key="pick:back" plain onPress={() => turn(page - 1)}>
+              {t.pickBack}
+            </Button>
+          )}
+          {pages > 1 && <Text dimColor>{t.pickPage(page + 1, pages)}</Text>}
+          {page < pages - 1 && (
+            <Button key="pick:next" plain onPress={() => turn(page + 1)}>
+              {t.pickNext}
+            </Button>
+          )}
+          <Button key="pick:close" plain dimColor onPress={() => $.ui.close({ id: PICK_PANE })}>
+            {t.pickClose}
+          </Button>
+        </Box>
       </Box>
     )
   })

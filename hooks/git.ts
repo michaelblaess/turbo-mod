@@ -143,3 +143,15 @@ export const repoPath = (top: string, relative: string): string => {
 /** Two spellings of one Windows path compare equal: slashes and case do not count there. */
 export const pathKey = (path: string): string =>
   /^[A-Za-z]:[\\/]/.test(path) ? path.replaceAll('/', '\\').toLowerCase() : path
+
+/**
+ * Which repos a sync pulls: behind the server, read, without changes of files git knows and
+ * without own commits. Those would stop a fast-forward or need a decision, so they are skipped.
+ * Untracked files stay allowed, git refuses the pull by itself if one would be overwritten.
+ */
+export const syncCandidates = (list: readonly RepoEntry[]): { pull: RepoEntry[]; skipped: RepoEntry[] } => {
+  const behind = list.filter(one => one.behind > 0)
+  const canPull = (one: RepoEntry): boolean => one.isRead && one.changed === 0 && one.ahead === 0
+
+  return { pull: behind.filter(canPull), skipped: behind.filter(one => !canPull(one)) }
+}

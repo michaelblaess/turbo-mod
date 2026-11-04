@@ -85,6 +85,8 @@ export type TodoItem = {
   line: number
   text: string
   isDone: boolean
+  /** Day the task was noted as YYYY-MM-DD, empty for a task without one. */
+  addedOn: string
 }
 
 export type TodoState = {
@@ -97,6 +99,32 @@ export type TodoState = {
   checkedAt: number
   /** Key of a note for the display ("in-repo", "unreadable"), otherwise empty. */
   note: string
+}
+
+/** What retro-amp reports in its status file. */
+export type NowPlaying = {
+  state: 'playing' | 'paused' | 'stopped'
+  title: string
+  artist: string
+  album: string
+  displayName: string
+  positionSeconds: number
+  durationSeconds: number
+  /** Time of the writing in milliseconds. */
+  updatedMs: number
+  /** False once retro-amp has ended, the file then holds the last track. */
+  isRunning: boolean
+  commands: string[]
+}
+
+export type MusicState = {
+  /** Full path of the status file of retro-amp, empty until the start has run. */
+  statusPath: string
+  controlPath: string
+  /** The last reading, missing as long as there is no status file. */
+  now?: NowPlaying
+  /** Time of the last reading, 0 as long as none has run. */
+  checkedAt: number
 }
 
 export type UsageLimit = {
@@ -125,6 +153,8 @@ declare module 'claude-code' {
       files: FileEntry[]
       /** Page of the file list that is shown, from 0. A new write goes back to 0. */
       filePage: number
+      /** Page of the dirty repos that is shown, from 0. */
+      repoPage: number
       /** Per widget: true means collapsed. */
       collapsed: Record<string, boolean>
       repos: ReposState
@@ -148,8 +178,19 @@ declare module 'claude-code' {
       usage: UsageState
       feed: FeedState
       todo: TodoState
+      /** What retro-amp plays, read from its status file. */
+      music: MusicState
       /** Address of a ticket with the placeholder {id}, empty if none is set. */
       ticketUrl: string
+      /** The quick commands: the commands read, the ticked names, their file, where the dialog went. */
+      pick: {
+        commands: { name: string; description: string; count: number }[]
+        picked: string[]
+        path: string
+        placed: string
+        filter: string
+        page: number
+      }
     }
   }
 }

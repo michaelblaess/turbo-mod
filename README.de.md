@@ -96,7 +96,7 @@ das Pane auf Deutsch.
 ## Erste Schritte
 
 - Beim allerersten Start zeigt das Pane einen kurzen Disclaimer in einem Rahmen. Klick einmal auf `[Verstanden]`.
-  Bis dahin bleiben `[pull]`, `[alle fetchen]` und der Ticket-Befehl gesperrt, alles andere
+  Bis dahin bleiben `[pull]`, `[alle fetchen]`, `[alle syncen]` und der Ticket-Befehl gesperrt, alles andere
   läuft. Die Antwort merkt sich der Mod auf diesem Rechner.
 - Lass Claude eine Datei schreiben. Sie erscheint unter **Dateien**, die jüngste oben.
 - Der Pfeil vor einer Überschrift klappt das Widget ein und wieder aus.
@@ -126,7 +126,7 @@ Dazu kommen Dateien, die ein Shell-Kommando in einem Git-Repo angelegt oder geä
 Ist die Liste länger als ihr Platz im Pane, blättert eine Zeile mit zwei Pfeilen und dem Bereich
 (`◂ 6-10 von 11 ▸`) durch die Seiten. Nach der letzten Seite kommt wieder die erste. Ein neuer
 Schreibvorgang bringt die Liste zurück auf Seite 1, weil die gerade geschriebene Datei oben
-steht.
+steht. Drei Dateien bleiben immer sichtbar. Reicht der Platz dafür nicht, scrollt das Pane.
 
 ### Terminal
 
@@ -158,6 +158,13 @@ offen ist.
 - `[>_]` öffnet einen Terminal-Split im Ordner dieses Repos.
 - `[alle fetchen]` führt in jedem Repo `git fetch` aus und liest neu. Damit siehst Du, welche
   Repos zurückliegen, denn das Lesen allein fragt nie einen Server.
+- `[alle syncen]` holt erst alles vom Server wie `[alle fetchen]` und zieht danach jedes Repo
+  per `git pull --ff-only` nach, das zurückliegt und weder geänderte Dateien noch eigene
+  Commits hat. Die übrigen bleiben unangetastet, die Meldung am Ende zählt nachgezogene,
+  übersprungene und fehlgeschlagene Repos. Weil der Knopf viele Repos auf einmal ändert,
+  braucht er einen zweiten Klick.
+- Mehr als sechs Repos mit Änderungen stehen auf Seiten, `◂ 1-6 von 13 ▸` blättert wie bei den
+  Dateien.
 - `[Ordner hinzufügen]` nimmt einen weiteren Ordner dazu, das `×` vor einem Ordner nimmt ihn aus
   der Liste. Bei mehr als einem Ordner stehen die Repos nach Ordner gruppiert.
 - Ist eine Ticket-Adresse gesetzt, wird die Ticketnummer im Branchnamen (`ABC-123` in
@@ -222,8 +229,14 @@ Eine einfache Liste für Ideen und für Dinge, die Du nicht vergessen willst.
 - `[ ]` hakt eine Aufgabe ab, erledigte stehen durchgestrichen unten.
 - Ein Doppelklick auf den Text holt ihn zum Bearbeiten ins Textfeld zurück.
 - `✕` löscht die Aufgabe nach einer Rückfrage.
-- `[N erledigte entfernen]` räumt alles Abgehakte weg, ebenfalls nach einer Rückfrage.
+- `[N erledigte archivieren]` räumt alles Abgehakte nach einer Rückfrage in ein Archiv neben
+  der Liste, unter einer Überschrift mit dem Tag. Lässt sich das Archiv nicht schreiben, bleibt
+  alles in der Liste.
+- `[kopieren]` legt die offenen Aufgaben als einfache Liste in die Zwischenablage.
 - `/turbo todo <text>` legt eine Aufgabe an, ohne dass Du das Pane anfasst.
+- `/turbo todo kopieren` macht dasselbe wie der Knopf, `/turbo todo export` schreibt die ganze
+  Liste als JSON neben die Datei. Nur das Wort allein gilt als Befehl, `/turbo todo export für
+  den Druck` ist eine Aufgabe.
 
 Solange die Liste leer ist, bleibt der Abschnitt eingeklappt. Der Kopf zeigt die Zahl der
 offenen Aufgaben auch dann.
@@ -236,14 +249,54 @@ Die Aufgaben liegen in einer Markdown-Datei auf Deinem Rechner, als Vorgabe in
 `~/.claude/turbo-mod-todo.md`. Du kannst sie in jedem Editor bearbeiten:
 
 ```markdown
-- [ ] Release-Notizen schreiben
+- [ ] Release-Notizen schreiben <!-- 2026-10-16 -->
 - [ ] Idee: dunkle Variante des Logos
 - [x] Alte Branches aufräumen
 ```
 
+Eine neue Aufgabe bekommt den Tag, an dem Du sie notiert hast, als Kommentar am Zeilenende.
+Markdown zeigt ihn nicht an, Umbenennen und Abhaken lassen ihn stehen. Zeilen ohne Tag sind
+genauso gültig.
+
 Zeilen, die keine Aufgabe sind, lässt der Mod stehen. `/turbo todo datei <pfad>` legt die Liste
 an einen anderen Ort. Ein Ordner in einem Git-Repo wird abgelehnt, damit die Aufgaben nie in
-einer Historie landen.
+einer Historie landen. Archiv und Export liegen im selben Ordner wie die Liste
+(`turbo-mod-todo-archive.md`, `turbo-mod-todo.json`), für sie gilt also derselbe Schutz.
+
+### retro-amp (optional)
+
+Wenn Du [retro-amp](https://github.com/michaelblaess/retro-amp) benutzt, den Musikplayer fürs
+Terminal, zeigt das Pane, was gerade läuft, so ähnlich wie das Display einer Sportuhr:
+
+- Interpret und Titel, die gespielte Zeit als Balken mit `1:03 / 5:00` dahinter.
+- `[◂◂]` zurück, `[❚❚]` oder `[▶]` Pause und Wiedergabe, `[▸▸]` weiter, `[■]` Stopp.
+- Ist retro-amp beendet, bleibt der letzte Titel gedimmt unter "zuletzt gespielt" stehen, ohne
+  Knöpfe.
+
+Ohne retro-amp erscheint der Abschnitt gar nicht. Der Mod sucht die Datei
+`~/.retro-amp/now-playing.json`, die retro-amp schreibt, solange es läuft. Das kann retro-amp ab
+Version 0.36.0. Ist der Abschnitt aufgeklappt, liest der Mod die Datei einmal pro Sekunde, sonst
+alle zehn Sekunden.
+
+### Befehle
+
+Slash-Befehle, die Du oft brauchst, etwa `/daily` oder `/repo-sync`, als Knöpfe im Pane. Der
+Knopf `[Befehle]` neben `/compact` und `/clear` öffnet einen Dialog mit allen Slash-Befehlen, die
+Du gerade ausführen kannst. Die meistgetippten stehen oben, ein Filter grenzt die Liste ein. Ein
+Häkchen legt den Befehl in den Abschnitt Befehle, ein Druck auf seinen Knopf führt ihn aus, als
+hättest Du ihn getippt. Arbeitet Claude gerade, wartet er, bis die Antwort fertig ist.
+
+Die Häkchen stehen in `~/.claude/turbo-mod-commands.md`, ein Befehl je Zeile:
+
+```markdown
+# Schnellbefehle von Turbo-MOD
+
+- /daily
+- /repo-sync
+```
+
+Du kannst die Datei auch von Hand bearbeiten. Ohne Häkchen gibt es den Abschnitt nicht, er nimmt
+der Dateiliste also keinen Platz.
 
 ## Befehle
 
@@ -257,6 +310,9 @@ einer Historie landen.
 | `/turbo feed <befehl>` | Widget Neue Tickets einschalten, `aus` schaltet es ab |
 | `/turbo todo <text>` | Aufgabe in die TODO-Liste legen, ohne Text: offene zählen |
 | `/turbo todo datei <pfad>` | Datei der TODO-Liste setzen, ohne Pfad: anzeigen |
+| `/turbo todo kopieren` | offene Aufgaben in die Zwischenablage |
+| `/turbo todo export` | ganze Liste als JSON neben die Datei schreiben |
+| `/turbo befehle` | Dialog zum Wählen der Schnellbefehle öffnen |
 | `/turbo sprache <de\|en>` | Sprache des Panes und der Antworten |
 | `/turbo leeren` | Liste der Dateien zurücksetzen, die Nummern beginnen wieder bei 1 |
 | `/turbo effekt` | Titeleffekt aus- oder einschalten |
@@ -315,8 +371,8 @@ er nicht, und an einen Server von mir geht nichts.
 
 - `git`, nur lesend, für die Repo-Liste und die Dateiliste: `status`, `rev-parse` und `diff`. Das
   läuft im Takt und nach jedem Shell-Kommando der Sitzung.
-- `git fetch` und `git pull --ff-only`, nur wenn Du `[alle fetchen]` oder `[pull]` drückst. Diese
-  beiden sprechen mit Deinem Git-Remote.
+- `git fetch` und `git pull --ff-only`, nur wenn Du `[alle fetchen]`, `[alle syncen]` oder
+  `[pull]` drückst. Diese beiden sprechen mit Deinem Git-Remote.
 - Dein Terminal, für die Split-Knöpfe: `wt.exe` im Windows Terminal, `tmux` oder `kitty @`. Unter
   Windows startet `[Letztes Pane schließen]` ein kurzes PowerShell-Skript.
 - Den eingestellten Editor, wenn Du den Editor-Knopf einer Datei drückst.
@@ -335,16 +391,27 @@ er nicht, und an einen Server von mir geht nichts.
 - Kontextgröße und Limits, wie Claude Code sie meldet.
 - Einige Umgebungsvariablen, um Terminal und Benutzerordner zu finden, etwa `WT_SESSION`, `TMUX`,
   `KITTY_WINDOW_ID` und `HOME`.
+- `~/.retro-amp/now-playing.json`, wenn es sie gibt: Zustand, Interpret, Titel und Zeit des
+  Stücks, das retro-amp spielt.
+- Die Liste der Slash-Befehle und die Eingabehistorie `~/.claude/history.jsonl`, nur beim
+  Öffnen des Dialogs für die Schnellbefehle, um die Befehle nach Nutzung zu sortieren. Es
+  zählt nur der Name eines Befehls, nichts sonst von dem, was Du getippt hast.
 
 **Was er schreibt**
 
-- Eine Datei: die TODO-Liste, in der Vorgabe `~/.claude/turbo-mod-todo.md`.
+- Die TODO-Liste, in der Vorgabe `~/.claude/turbo-mod-todo.md`, und daneben zwei Dateien, die
+  nur auf Knopfdruck oder Befehl entstehen: das Archiv der erledigten Aufgaben
+  (`turbo-mod-todo-archive.md`) und den Export (`turbo-mod-todo.json`).
+- Die angehakten Schnellbefehle, `~/.claude/turbo-mod-commands.md`.
+- `~/.retro-amp/control`, ein Wort wie `next`, nur wenn Du einen Knopf im Abschnitt retro-amp
+  drückst. retro-amp liest die Datei und löscht sie.
 - Seine Einstellungen, im Speicher, den Claude Code jedem Mod gibt.
 
 **Slash-Befehle, die er ausführt**
 
 - `/compact` und `/clear`, jeweils erst nach dem zweiten Druck auf den Knopf innerhalb von fünf
   Sekunden.
+- Die angehakten Schnellbefehle, jeder nur, wenn Du seinen Knopf drückst.
 
 Die Links in der Kopfzeile zeigen auf dieses Repo und auf michaelblaess.de. Dein Terminal öffnet
 sie beim Klick, der Mod lädt sie nicht.
@@ -377,8 +444,8 @@ sie beim Klick, der Mod lädt sie nicht.
   Schemata stehen die Knöpfe deshalb auf einem dunklen Grund. Bei einem hellen Terminal und
   einem dunklen Schema kann ein Knopf schlecht lesbar sein.
 - Das Lesen der Repos fragt nie einen Server. "Voraus" und "zurück" stammen vom letzten Fetch,
-  nur `[pull]` und `[alle fetchen]` sprechen mit dem Server. Beide warten höchstens eine Minute
-  je Repo.
+  nur `[pull]`, `[alle fetchen]` und `[alle syncen]` sprechen mit dem Server. Sie warten höchstens
+  eine Minute je Repo.
 - Gelesen werden höchstens 80 Ordner unter jedem Repo-Ordner.
 
 ## Für Entwickler
