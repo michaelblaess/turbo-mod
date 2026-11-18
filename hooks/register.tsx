@@ -100,7 +100,7 @@ import {
 } from './todo'
 
 // Must match the version in .claude-plugin/plugin.json
-const VERSION = '0.17.0'
+const VERSION = '0.17.1'
 
 const PANE = 'turbo-mod'
 const PANE_TITLE = 'Turbo-MOD'

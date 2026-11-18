@@ -382,15 +382,23 @@ er nicht, und an einen Server von mir geht nichts.
 - Einen Ordnerdialog, wenn Du einen Repo-Ordner auswählst: PowerShell unter Windows, `osascript`
   unter macOS, `zenity` unter Linux.
 - Das Kommando aus `/turbo feed`, genau so, wie Du es eingegeben hast. Der Mod liest seine Ausgabe
-  als JSON. Ohne diese Einstellung läuft nichts. Was das Kommando tut, liegt bei Dir.
+  als JSON. Ohne diese Einstellung läuft nichts. Was das Kommando tut, liegt bei Dir. Aus dem
+  Gespräch gibt der Mod ihm nichts mit, keine zusätzlichen Argumente und keine Eingabe. Es läuft
+  nur, was in der Einstellung steht.
+
+Die PowerShell-Skripte zum Schließen eines Panes, für die Zwischenablage und den Ordnerdialog
+stehen als fester Text in `hooks/platform.ts`. Heruntergeladen wird nichts, und keines davon
+startet ein weiteres Skript.
 
 **Was er liest**
 
 - Die Dateipfade aus den Werkzeugaufrufen der Sitzung, für die Liste der Dateien, die Claude
   geschrieben hat.
 - Kontextgröße und Limits, wie Claude Code sie meldet.
-- Einige Umgebungsvariablen, um Terminal und Benutzerordner zu finden, etwa `WT_SESSION`, `TMUX`,
-  `KITTY_WINDOW_ID` und `HOME`.
+- Diese Umgebungsvariablen und keine anderen: `OS`, `WT_SESSION`, `TMUX`, `KITTY_WINDOW_ID`,
+  `KITTY_LISTEN_ON` und `TERM_PROGRAM`, um das Terminal zu erkennen, `HOME` und `USERPROFILE` für
+  den Benutzerordner und `TURBO_MOD_REPOS` für den Repo-Ordner. `KITTY_LISTEN_ON` ist der Pfad
+  zum Steuer-Socket von kitty, kein Geheimnis.
 - `~/.retro-amp/now-playing.json`, wenn es sie gibt: Zustand, Interpret, Titel und Zeit des
   Stücks, das retro-amp spielt.
 - Die Liste der Slash-Befehle und die Eingabehistorie `~/.claude/history.jsonl`, nur beim
@@ -404,14 +412,38 @@ er nicht, und an einen Server von mir geht nichts.
   (`turbo-mod-todo-archive.md`) und den Export (`turbo-mod-todo.json`).
 - Die angehakten Schnellbefehle, `~/.claude/turbo-mod-commands.md`.
 - `~/.retro-amp/control`, ein Wort wie `next`, nur wenn Du einen Knopf im Abschnitt retro-amp
-  drückst. retro-amp liest die Datei und löscht sie.
+  drückst. retro-amp liest die Datei und löscht sie. Das ist die einzige Datei, nach der ein
+  anderes Programm handelt, und sie nimmt nur die Wörter `play_pause`, `next`, `previous` und
+  `stop`.
 - Seine Einstellungen, im Speicher, den Claude Code jedem Mod gibt.
+
+Keine dieser Dateien ist eine Build-, Start-, Einstellungs- oder Anweisungsdatei, und Claude
+Code liest sie nicht. Sie liegen in `~/.claude/`, weil es diesen Ordner auf jedem Rechner mit
+Claude Code gibt. `/turbo todo datei <pfad>` legt die TODO-Liste woanders hin. Eine TODO-Liste,
+die in einem Git-Repo liegt, schreibt der Mod nicht.
 
 **Slash-Befehle, die er ausführt**
 
 - `/compact` und `/clear`, jeweils erst nach dem zweiten Druck auf den Knopf innerhalb von fünf
   Sekunden.
 - Die angehakten Schnellbefehle, jeder nur, wenn Du seinen Knopf drückst.
+
+**Hooks, die er anmeldet**
+
+- `session.start`: öffnet das Pane.
+- `command.run`, nur für `/turbo`: beantwortet die eigenen Unterbefehle. Andere Slash-Befehle
+  sieht er nicht und ändert sie nicht.
+- `tool.call`: merkt sich den Pfad einer Datei, die Claude geschrieben hat, und prüft nach einem
+  Shell-Kommando, welche Dateien sich geändert haben. Jeder Aufruf geht unverändert durch,
+  blockiert wird keiner.
+- `session.measure`, `ui.focus` und `ui.render`: die Kontextgröße für das Claude-Widget und das
+  Zeichnen des Panes.
+
+**Zugangsdaten**
+
+Der Mod liest kein Token, keinen Schlüssel und kein Passwort, weder aus der Umgebung noch aus
+einer Datei. Wo im Code `tokens` steht, ist die Kontextgröße der Sitzung gemeint. `git fetch` und
+`git pull` nutzen den Zugang, den Dein git schon hat, der Mod sieht ihn nicht.
 
 Die Links in der Kopfzeile zeigen auf dieses Repo und auf michaelblaess.de. Dein Terminal öffnet
 sie beim Klick, der Mod lädt sie nicht.

@@ -370,14 +370,20 @@ own and sends nothing to a server of mine.
 - A folder dialog when you pick a repo folder: PowerShell on Windows, `osascript` on macOS,
   `zenity` on Linux.
 - The command you set with `/turbo feed`, exactly as you typed it. The mod reads its output as
-  JSON. Without that setting nothing runs. What this command does is up to you.
+  JSON. Without that setting nothing runs. What this command does is up to you. The mod hands it
+  nothing from the conversation: no extra arguments, no input. Only the words of the setting run.
+
+The PowerShell scripts for closing a pane, the clipboard and the folder dialog are fixed text in
+`hooks/platform.ts`. Nothing is downloaded, and none of them runs another script.
 
 **What it reads**
 
 - The file paths from the tool calls of the session, to list the files Claude wrote.
 - Context size and plan limits as Claude Code reports them.
-- A few environment variables to find your terminal and home folder, such as `WT_SESSION`,
-  `TMUX`, `KITTY_WINDOW_ID` and `HOME`.
+- These environment variables and no others: `OS`, `WT_SESSION`, `TMUX`, `KITTY_WINDOW_ID`,
+  `KITTY_LISTEN_ON` and `TERM_PROGRAM` to find your terminal, `HOME` and `USERPROFILE` to find
+  your home folder, and `TURBO_MOD_REPOS` for the repo folder. `KITTY_LISTEN_ON` is the path of
+  kitty's control socket, not a secret.
 - `~/.retro-amp/now-playing.json`, if it exists: state, artist, title and time of the track
   retro-amp plays.
 - The list of slash commands and the input history `~/.claude/history.jsonl`, only while
@@ -391,13 +397,35 @@ own and sends nothing to a server of mine.
   (`turbo-mod-todo-archive.md`) and the export (`turbo-mod-todo.json`).
 - The ticked quick commands, `~/.claude/turbo-mod-commands.md`.
 - `~/.retro-amp/control`, one word such as `next`, only when you press a button of the
-  retro-amp section. retro-amp reads it and deletes it.
+  retro-amp section. retro-amp reads it and deletes it. This is the only file another program
+  acts on, and it only takes the words `play_pause`, `next`, `previous` and `stop`.
 - Its settings, in the store Claude Code gives every mod.
+
+None of these files is a build, start-up, settings or instructions file, and Claude Code does
+not read them. They lie in `~/.claude/` because that folder exists on every machine with Claude
+Code. `/turbo todo file <path>` moves the TODO list elsewhere. The mod does not write a TODO
+list that lies inside a git repo.
 
 **Slash commands it runs**
 
 - `/compact` and `/clear`, each only after you press its button twice within five seconds.
 - The quick commands you ticked, each only when you press its button.
+
+**Hooks it registers**
+
+- `session.start`: opens the pane.
+- `command.run`, only for `/turbo`: answers its own subcommands. It does not see other slash
+  commands and does not change them.
+- `tool.call`: notes the path of a file Claude wrote, and after a shell command checks which
+  files changed. It lets every call through unchanged and never blocks one.
+- `session.measure`, `ui.focus` and `ui.render`: the context size for the Claude widget, and
+  drawing the pane.
+
+**Credentials**
+
+The mod reads no token, key or password, neither from the environment nor from a file. Where
+the code says `tokens`, it means the context size of the session. `git fetch` and `git pull` use
+the access your git already has, the mod does not see it.
 
 The links in the header point to this repo and to michaelblaess.de. Your terminal opens them
 when you click, the mod does not load them.
